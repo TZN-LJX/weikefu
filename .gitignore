@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.vite/
+.worktrees/
+.superpowers/
+private-content/
+private-packs/
+*.wkf
+*.pdf
+.env
+.env.*
+!.env.example
+APIKEY.txt
+*.local
