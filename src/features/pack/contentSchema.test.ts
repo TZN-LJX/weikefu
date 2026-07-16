@@ -32,4 +32,15 @@ describe('private pack content schemas', () => {
       }],
     })).toThrow('必须包含隐藏的未来K线')
   })
+
+  it('accepts optional 4h candles for background-first replay', () => {
+    const candle = { time: 1, open: 1, high: 2, low: 1, close: 2, volume: 10 }
+    const result = MarketCasesSchema.parse({ version: 1, cases: [{
+      id: 'case-2', title: '多周期', timeframe: '1h', context4h: '需求', cutoff: 2,
+      evidenceOptions: [{ id: 'e1', label: '缩量回测' }],
+      candles: [candle, { ...candle, time: 2 }, { ...candle, time: 3 }],
+      candles4h: Array.from({ length: 10 }, (_, index) => ({ ...candle, time: index + 1 })),
+    }] })
+    expect(result.cases[0].candles4h).toHaveLength(10)
+  })
 })

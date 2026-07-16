@@ -9,6 +9,7 @@ export type MarketCase = {
   timeframe: string
   context4h: string
   candles: Candle[]
+  candles4h?: Candle[]
   cutoff: number
   evidenceOptions: { id: string; label: string }[]
 }
@@ -26,6 +27,7 @@ type ReplayPageProps = {
 
 export function ReplayPage({ marketCase, onComplete }: ReplayPageProps) {
   const [session, setSession] = useState(() => createReplaySession(marketCase.candles, marketCase.cutoff))
+  const [chartTimeframe, setChartTimeframe] = useState<'4h' | '1h'>(() => marketCase.candles4h?.length ? '4h' : '1h')
   const [background4h, setBackground4h] = useState('')
   const [structure1h, setStructure1h] = useState('')
   const [evidence, setEvidence] = useState<string[]>([])
@@ -43,7 +45,11 @@ export function ReplayPage({ marketCase, onComplete }: ReplayPageProps) {
     </header>
 
     <div className="chart-shell">
-      <MarketChart candles={session.visibleCandles} />
+      {marketCase.candles4h?.length && <div className="chart-timeframes" role="group" aria-label="图表周期">
+        <button type="button" className={chartTimeframe === '4h' ? 'active' : ''} onClick={() => setChartTimeframe('4h')}>4小时背景</button>
+        <button type="button" className={chartTimeframe === '1h' ? 'active' : ''} onClick={() => setChartTimeframe('1h')}>1小时结构</button>
+      </div>}
+      <MarketChart candles={chartTimeframe === '4h' && marketCase.candles4h ? marketCase.candles4h : session.visibleCandles} />
       <button className="chart-expand" type="button" title="横屏查看完整图表"><Expand size={17} /></button>
     </div>
 
@@ -85,6 +91,7 @@ export function ReplayPage({ marketCase, onComplete }: ReplayPageProps) {
       {!session.submitted ? <button className="primary-command" type="button" disabled={!ready} onClick={() => {
         const answer = { background4h, structure1h, evidence, action, invalidation }
         onComplete(answer)
+        setChartTimeframe('1h')
         setSession((current) => submitReplay(current))
       }}>提交整体判断</button> : <button className="primary-command" type="button" disabled={!session.futureCandles.length} onClick={() => setSession((current) => revealNext(current, 5))}>
         <Eye size={18} />揭示后续 5 根K线

@@ -60,6 +60,10 @@
 .chart-shell { position: relative; min-width: 0; background: #111a1f; border: 1px solid #2d3b42; }
 .market-chart { width: 100%; min-height: 330px; }
 .chart-expand { position: absolute; top: 9px; left: 9px; width: 36px; height: 36px; border: 1px solid #45545c; background: #1c282e; color: #fff; display: grid; place-items: center; cursor: pointer; }
+.chart-timeframes { position: absolute; z-index: 2; top: 9px; right: 9px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #45545c; background: #1c282e; }
+.chart-timeframes button { min-height: 36px; padding: 6px 10px; border: 0; border-right: 1px solid #45545c; background: transparent; color: #aab6bb; font-size: 11px; cursor: pointer; }
+.chart-timeframes button:last-child { border-right: 0; }
+.chart-timeframes button.active { color: #fff; background: #2f5f56; }
 .analysis-form { background: var(--surface); border: 1px solid var(--line); padding: 20px; display: grid; gap: 17px; }
 .analysis-form label, .analysis-form fieldset { display: grid; gap: 7px; font-size: 13px; font-weight: 700; }
 .analysis-form fieldset { border: 0; padding: 0; margin: 0; }
@@ -199,7 +203,7 @@
   .import-panel { padding: 20px; }
   .today-header, .today-section { border-radius: 0; margin-inline: -16px; border-left: 0; border-right: 0; }
   .answer-grid { grid-template-columns: 1fr; }
-  .replay-header { align-items: flex-start; }
+  .replay-header { flex-direction: column; align-items: flex-start; gap: 8px; padding-right: 52px; }
   .locked-state { font-size: 10px; }
   .field-row { grid-template-columns: 1fr; }
   .page-heading { align-items: flex-start; }
