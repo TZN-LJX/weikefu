@@ -54,4 +54,35 @@ describe('local repositories', () => {
     expect(await repositories.getAsset('old.txt')).toBeUndefined()
     expect(new TextDecoder().decode((await repositories.getAsset('new.txt'))?.bytes)).toBe('new')
   })
+
+  it('persists settings, simulation trades, and journals for the app shell', async () => {
+    const database = createDatabase(`test-${crypto.randomUUID()}`)
+    databases.push(database)
+    const repositories = createRepositories(database)
+
+    await repositories.setSetting('ai', { endpoint: 'https://example.com/v1', model: 'coach' })
+    await repositories.saveTrade({ id: 't1', status: 'open' })
+    await repositories.saveJournal({ id: 'j1', tradeId: 't1', conclusion: '遵守规则' })
+
+    expect(await repositories.getSetting('ai')).toEqual({ endpoint: 'https://example.com/v1', model: 'coach' })
+    expect(await repositories.getTrades()).toEqual([expect.objectContaining({ id: 't1' })])
+    expect(await repositories.getJournals()).toEqual([expect.objectContaining({ tradeId: 't1' })])
+  })
+
+  it('restores progress records without touching private pack assets', async () => {
+    const database = createDatabase(`test-${crypto.randomUUID()}`)
+    databases.push(database)
+    const repositories = createRepositories(database)
+    await repositories.savePack(manifest, [{ path: 'private.pdf', kind: 'pdf', bytes: new Uint8Array([1]) }])
+
+    await repositories.restoreProgress({
+      schemaVersion: 1, exportedAt: new Date().toISOString(),
+      attempts: [{ id: 1, exerciseId: 'e1' }], mastery: [{ contentUnitId: 'u1' }],
+      trades: [{ id: 't1' }], journals: [{ id: 'j1', tradeId: 't1' }], settings: { language: 'zh-CN' },
+    })
+
+    expect(await repositories.getAsset('private.pdf')).toBeDefined()
+    expect(await repositories.getTrades()).toHaveLength(1)
+    expect(await repositories.getSetting('language')).toBe('zh-CN')
+  })
 })

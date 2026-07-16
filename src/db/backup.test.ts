@@ -22,4 +22,13 @@ describe('progress backup', () => {
   it('rejects unsupported backup versions', () => {
     expect(() => validateBackup({ schemaVersion: 999 })).toThrow('不支持的备份版本')
   })
+
+  it('removes a nested AI key from stored settings', () => {
+    const backup = createBackup({
+      attempts: [], mastery: [], trades: [], journals: [],
+      settings: { ai: { endpoint: 'https://example.com/v1', model: 'coach', apiKey: 'secret', rememberKey: true } },
+    })
+    expect(backup.settings).toEqual({ ai: { endpoint: 'https://example.com/v1', model: 'coach', rememberKey: true } })
+    expect(JSON.stringify(backup)).not.toContain('secret')
+  })
 })
