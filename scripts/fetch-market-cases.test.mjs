@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeKlines, parseArchiveCsv, splitReplayWindow, visibleContextCandles } from './fetch-market-cases.mjs'
+import { neutralCaseTitle, normalizeKlines, parseArchiveCsv, splitReplayWindow, visibleContextCandles } from './fetch-market-cases.mjs'
 
 test('normalizes Binance futures klines to closed candle records', () => {
   const candles = normalizeKlines([[1_720_000_000_000, '3000', '3020', '2980', '3010', '123.4', 0, 0, 0, 0, 0, 0]])
@@ -25,4 +25,8 @@ test('does not leak the hidden 1h future through the 4h chart', () => {
 test('parses the official Binance futures archive CSV format', () => {
   const csv = 'open_time,open,high,low,close,volume,close_time\n1720000000000,3000,3020,2980,3010,123.4,1720003599999\n'
   assert.deepEqual(parseArchiveCsv(csv), [[1720000000000, '3000', '3020', '2980', '3010', '123.4']])
+})
+
+test('uses a neutral replay title that does not reveal the reference label', () => {
+  assert.equal(neutralCaseTitle(0, '2024-01-18T00:00:00Z'), 'ETH 回放 01 · 2024-01')
 })
