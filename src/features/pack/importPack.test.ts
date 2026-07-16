@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { importPack } from './importPack'
 
 async function sha256(value: Uint8Array) {
-  const digest = await crypto.subtle.digest('SHA-256', value)
+  const copy = Uint8Array.from(value)
+  const digest = await crypto.subtle.digest('SHA-256', copy.buffer)
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
