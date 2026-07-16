@@ -1,0 +1,24 @@
+:root {
+  color: #172127;
+  background: #f1f4f3;
+  font-family: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #172127;
+  --muted: #657178;
+  --surface: #ffffff;
+  --surface-soft: #f5f7f6;
+  --line: #d9e0dd;
+  --green: #164e43;
+  --green-2: #1f7a67;
+  --gold: #c28d24;
+  --blue: #356f9b;
+  --red: #aa4d51;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #f1f4f3; }
+button, input, textarea, select { font: inherit; letter-spacing: 0; }
+button, label { -webkit-tap-highlight-color: transparent; }
+h1, h2, h3, p { margin-top: 0; }
