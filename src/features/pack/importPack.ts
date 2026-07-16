@@ -21,8 +21,8 @@ function compareVersions(left: string, right: string) {
 }
 
 async function hashBytes(bytes: Uint8Array) {
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  const copy = Uint8Array.from(bytes)
+  const digest = await crypto.subtle.digest('SHA-256', copy.buffer)
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
