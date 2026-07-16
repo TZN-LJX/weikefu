@@ -2,6 +2,7 @@
   "name": "weikefu",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +12,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:tools": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.4",

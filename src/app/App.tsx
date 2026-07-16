@@ -14,7 +14,6 @@ import { JournalPage } from '../features/journal/JournalPage'
 import { OnboardingPage } from '../features/onboarding/OnboardingPage'
 import { CourseSchema, MarketCasesSchema, type Course, type MarketCases } from '../features/pack/contentSchema'
 import { importPack } from '../features/pack/importPack'
-import { ReplayPage } from '../features/replay/ReplayPage'
 import { SettingsPage, type StoredAiConfig } from '../features/settings/SettingsPage'
 import { SimulationPage, type SimulationTrade } from '../features/simulation/SimulationPage'
 import { TodayPage } from '../features/today/TodayPage'
@@ -23,6 +22,7 @@ const APP_VERSION = '1.0.0'
 const defaultRepositories = createRepositories(database)
 const emptyAi: StoredAiConfig = { endpoint: '', model: '', apiKey: '', rememberKey: false }
 const PdfReader = lazy(() => import('../features/pdf/PdfReader').then((module) => ({ default: module.PdfReader })))
+const ReplayPage = lazy(() => import('../features/replay/ReplayPage').then((module) => ({ default: module.ReplayPage })))
 
 type AppState = {
   pack?: PackRecord
@@ -200,7 +200,7 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
 function ReplayRoute({ cases }: { cases: MarketCases }) {
   const { caseId } = useParams()
   const marketCase = cases.cases.find((item) => item.id === caseId)
-  return marketCase ? <ReplayPage marketCase={marketCase} onComplete={() => undefined} /> : <Navigate to="/training" replace />
+  return marketCase ? <Suspense fallback={<LoadingPage />}><ReplayPage marketCase={marketCase} onComplete={() => undefined} /></Suspense> : <Navigate to="/training" replace />
 }
 
 function JournalRoute({ trade, repositories, onSaved }: { trade?: SimulationTrade; repositories: Repositories; onSaved: (entry: JournalEntry) => void }) {

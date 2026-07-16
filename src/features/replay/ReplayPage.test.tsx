@@ -17,6 +17,17 @@ const candles = Array.from({ length: 110 }, (_, index) => ({
 }))
 
 describe('ReplayPage', () => {
+  it('starts with the 4h background chart when multi-timeframe data is available', async () => {
+    const user = userEvent.setup()
+    render(<ReplayPage marketCase={{
+      id: 'case-mtf', title: '多周期判断', timeframe: '1h', context4h: '4h', candles, candles4h: candles.slice(0, 30), cutoff: 100,
+      evidenceOptions: [{ id: 'e1', label: '回测缩量' }],
+    }} onComplete={vi.fn()} />)
+    expect(screen.getByTestId('chart')).toHaveTextContent('30 candles')
+    await user.click(screen.getByRole('button', { name: '1小时结构' }))
+    expect(screen.getByTestId('chart')).toHaveTextContent('100 candles')
+  })
+
   it('reveals future candles only after a complete submission', async () => {
     const user = userEvent.setup()
     render(<ReplayPage marketCase={{

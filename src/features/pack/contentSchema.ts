@@ -54,6 +54,7 @@ const MarketCaseSchema = z.object({
   cutoff: z.number().int().positive(),
   evidenceOptions: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })).min(1),
   candles: z.array(CandleSchema).min(2),
+  candles4h: z.array(CandleSchema).min(10).optional(),
 }).superRefine((marketCase, context) => {
   if (marketCase.cutoff >= marketCase.candles.length) {
     context.addIssue({ code: 'custom', path: ['cutoff'], message: '必须包含隐藏的未来K线' })

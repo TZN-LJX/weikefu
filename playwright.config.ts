@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const systemEdge = process.platform === 'win32'
+  ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+  : undefined
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -8,6 +12,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173/weikefu/',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: systemEdge ? { executablePath: systemEdge } : undefined,
   },
   webServer: {
     command: 'pnpm build && pnpm preview --host 127.0.0.1',
