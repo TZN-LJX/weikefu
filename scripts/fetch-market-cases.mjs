@@ -47,6 +47,10 @@ export function visibleContextCandles(candles, cutoffTime) {
   return candles.filter((candle) => candle.time <= cutoffTime)
 }
 
+export function neutralCaseTitle(index, end) {
+  return `ETH 回放 ${String(index + 1).padStart(2, '0')} · ${end.slice(0, 7)}`
+}
+
 function archiveMonths(endTime) {
   const start = new Date(endTime - 45 * 86_400_000)
   const end = new Date(endTime)
@@ -117,7 +121,7 @@ async function main() {
     const contextCutoff = candles[cutoff - 1].time
     cases.push({
       id: item.id,
-      title: item.title,
+      title: neutralCaseTitle(index, item.end),
       timeframe: '1h',
       context4h: '先观察 4 小时供需背景，再判断 1 小时结构；不要根据案例标题直接下结论。',
       cutoff,

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 import { GlobalWorkerOptions, getDocument, type PDFDocumentProxy } from 'pdfjs-dist'
 import { normalizePage } from './pdfState'
+import pdfWorkerUrl from './pdf.worker.ts?worker&url'
 
-GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 type PdfReaderProps = {
   bytes: Uint8Array
