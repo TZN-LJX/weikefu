@@ -1,6 +1,7 @@
+import type { ChallengeProgress, WrongItem } from '../domain/challenge'
 import type { ImportedPackFile, PackManifest } from '../features/pack/packSchema'
-import type { AssetRecord, WeikefuDatabase } from './database'
 import type { ProgressBackup } from './backup'
+import type { AssetRecord, ChallengeAttemptRecord, WeikefuDatabase } from './database'
 
 function assetId(packId: string, path: string) {
   return `${packId}:${path}`
@@ -65,45 +66,65 @@ export function createRepositories(database: WeikefuDatabase) {
       return (await database.settings.get(key))?.value as T | undefined
     },
 
-    async saveTrade(trade: Record<string, unknown> & { id: string }) {
-      await database.trades.put(trade)
+    saveChallengeProgress(progress: ChallengeProgress) {
+      return database.challengeProgress.put(progress)
     },
 
-    getTrades() {
-      return database.trades.toArray()
+    getChallengeProgress() {
+      return database.challengeProgress.get('main')
     },
 
-    async saveJournal(journal: Record<string, unknown> & { id: string }) {
-      await database.journals.put(journal)
+    async saveChallengeAttempt(attempt: ChallengeAttemptRecord) {
+      await database.challengeAttempts.add(attempt)
     },
 
-    getJournals() {
-      return database.journals.toArray()
+    getChallengeAttempts() {
+      return database.challengeAttempts.toArray()
+    },
+
+    saveWrongItem(item: WrongItem) {
+      return database.wrongItems.put(item)
+    },
+
+    getWrongItem(questionId: string) {
+      return database.wrongItems.get(questionId)
+    },
+
+    getWrongItems() {
+      return database.wrongItems.toArray()
+    },
+
+    async resetChallengeProgress() {
+      await database.transaction('rw', database.challengeProgress, database.challengeAttempts, database.wrongItems, async () => {
+        await Promise.all([
+          database.challengeProgress.clear(),
+          database.challengeAttempts.clear(),
+          database.wrongItems.clear(),
+        ])
+      })
     },
 
     async getBackupSnapshot() {
       const settings = Object.fromEntries((await database.settings.toArray()).map((item) => [item.key, item.value]))
       return {
-        attempts: await database.attempts.toArray(),
-        mastery: await database.mastery.toArray(),
-        trades: await database.trades.toArray(),
-        journals: await database.journals.toArray(),
+        challengeProgress: await database.challengeProgress.toArray(),
+        challengeAttempts: await database.challengeAttempts.toArray(),
+        wrongItems: await database.wrongItems.toArray(),
         settings,
       }
     },
 
     async restoreProgress(backup: ProgressBackup) {
-      await database.transaction('rw', database.attempts, database.mastery, database.trades, database.journals, database.settings, async () => {
+      await database.transaction('rw', database.challengeProgress, database.challengeAttempts, database.wrongItems, database.settings, async () => {
         await Promise.all([
-          database.attempts.clear(),
-          database.mastery.clear(),
-          database.trades.clear(),
-          database.journals.clear(),
+          database.challengeProgress.clear(),
+          database.challengeAttempts.clear(),
+          database.wrongItems.clear(),
+          database.settings.clear(),
         ])
-        await database.attempts.bulkPut(backup.attempts as (Record<string, unknown> & { id?: number })[])
-        await database.mastery.bulkPut(backup.mastery as (Record<string, unknown> & { contentUnitId: string })[])
-        await database.trades.bulkPut(backup.trades as (Record<string, unknown> & { id: string })[])
-        await database.journals.bulkPut(backup.journals as (Record<string, unknown> & { id: string })[])
+        await database.challengeProgress.bulkPut(backup.challengeProgress as ChallengeProgress[])
+        await database.challengeAttempts.bulkPut(backup.challengeAttempts as ChallengeAttemptRecord[])
+        await database.wrongItems.bulkPut(backup.wrongItems as WrongItem[])
         await database.settings.bulkPut(Object.entries(backup.settings).map(([key, value]) => ({ key, value })))
       })
     },
