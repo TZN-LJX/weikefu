@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
-import { importFixturePack } from './helpers'
+import { completeBookQuiz, importFixturePack } from './helpers'
 
 test('captures required viewports and verifies the chart canvas is nonblank', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'one browser is sufficient for visual artifacts')
@@ -8,13 +8,14 @@ test('captures required viewports and verifies the chart canvas is nonblank', as
   await importFixturePack(page)
   for (const viewport of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport)
-    await page.goto('./#/today')
-    await page.screenshot({ path: path.resolve('test-results', 'visual', `today-${viewport.width}x${viewport.height}.png`), fullPage: true })
+    await page.goto('./#/')
+    await page.screenshot({ path: path.resolve('test-results', 'visual', `challenge-map-${viewport.width}x${viewport.height}.png`), fullPage: true })
   }
 
   await page.setViewportSize({ width: 412, height: 915 })
-  await page.goto('./#/replay/case-1')
-  const settingsBox = await page.locator('.mobile-settings').boundingBox()
+  await page.getByRole('button', { name: '开始 知识单元 1' }).click()
+  await completeBookQuiz(page)
+  const settingsBox = await page.getByTitle('设置').boundingBox()
   const lockBox = await page.getByText('未来走势已隐藏').boundingBox()
   expect(settingsBox && lockBox && (
     settingsBox.x + settingsBox.width <= lockBox.x || lockBox.x + lockBox.width <= settingsBox.x ||

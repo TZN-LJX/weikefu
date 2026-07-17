@@ -1,34 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import { createBackup, validateBackup } from './backup'
 
-describe('progress backup', () => {
-  it('excludes AI credentials and private publication assets', () => {
+describe('challenge progress backup', () => {
+  it('exports only challenge progress, wrong items, attempts, and safe settings', () => {
     const backup = createBackup({
-      attempts: [{ id: 1 }],
-      mastery: [{ contentUnitId: 'u1' }],
-      trades: [{ id: 't1' }],
-      journals: [{ id: 'j1' }],
-      settings: { endpoint: 'https://example.com/v1', model: 'model', aiKey: 'secret' },
-      contentAssets: [{ path: 'assets/original.pdf' }],
-      packs: [{ id: 'pack' }],
+      challengeProgress: [{ id: 'main', unlockedUnitIndex: 1 }],
+      challengeAttempts: [{ id: 1, questionId: 'q1', correct: false }],
+      wrongItems: [{ questionId: 'q1', correctReviewCount: 0 }],
+      settings: {
+        language: 'zh-CN',
+        ai: { endpoint: 'https://example.com/v1', apiKey: 'secret' },
+        nested: { apiKey: 'nested-secret', keep: true },
+      },
     })
 
-    expect(backup.schemaVersion).toBe(1)
-    expect(backup.settings).toEqual({ endpoint: 'https://example.com/v1', model: 'model' })
-    expect(backup).not.toHaveProperty('contentAssets')
-    expect(backup).not.toHaveProperty('packs')
-  })
-
-  it('rejects unsupported backup versions', () => {
-    expect(() => validateBackup({ schemaVersion: 999 })).toThrow('不支持的备份版本')
-  })
-
-  it('removes a nested AI key from stored settings', () => {
-    const backup = createBackup({
-      attempts: [], mastery: [], trades: [], journals: [],
-      settings: { ai: { endpoint: 'https://example.com/v1', model: 'coach', apiKey: 'secret', rememberKey: true } },
-    })
-    expect(backup.settings).toEqual({ ai: { endpoint: 'https://example.com/v1', model: 'coach', rememberKey: true } })
+    expect(backup.schemaVersion).toBe(2)
+    expect(backup.challengeProgress).toHaveLength(1)
+    expect(backup.wrongItems).toHaveLength(1)
+    expect(backup.settings).toEqual({ language: 'zh-CN', nested: { keep: true } })
     expect(JSON.stringify(backup)).not.toContain('secret')
+    expect(backup).not.toHaveProperty('trades')
+    expect(backup).not.toHaveProperty('journals')
+  })
+
+  it('rejects legacy and incomplete backups', () => {
+    expect(() => validateBackup({ schemaVersion: 1 })).toThrow('不支持的备份版本')
+    expect(() => validateBackup({ schemaVersion: 2, challengeProgress: [] })).toThrow('备份文件内容不完整')
+  })
+
+  it('accepts a complete version 2 backup', () => {
+    const backup = createBackup({ challengeProgress: [], challengeAttempts: [], wrongItems: [], settings: {} })
+    expect(validateBackup(backup)).toEqual(backup)
   })
 })

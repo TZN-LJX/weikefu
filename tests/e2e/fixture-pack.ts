@@ -1,49 +1,100 @@
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import JSZip from 'jszip'
 
-const candles = Array.from({ length: 120 }, (_, index) => ({
-  time: 1_700_000_000 + index * 3_600,
-  open: 3_000 + index, high: 3_008 + index, low: 2_994 + index, close: 3_004 + index, volume: 100 + index,
+const source = {
+  pdfPath: 'assets/original.pdf',
+  chapter: '第一章 聪明钱的看盘顺序',
+  pageStart: 12,
+  pageEnd: 14,
+}
+
+function candle(time: number, close: number) {
+  return { time, open: close - 2, high: close + 8, low: close - 8, close, volume: 100 }
+}
+
+function bookQuestion(unitIndex: number, questionIndex: number) {
+  return {
+    id: `unit-${unitIndex + 1}-question-${questionIndex + 1}`,
+    prompt: `知识单元 ${unitIndex + 1} 测验 ${questionIndex + 1}：证据不足时应该怎样处理？`,
+    options: [
+      { id: 'wait', label: '等待更多证据', explanation: '背景和价量证据不一致时不应强行预测。' },
+      { id: 'long', label: '立即做多', explanation: '没有需求控制证据，不能直接得出上涨结论。' },
+      { id: 'short', label: '立即做空', explanation: '没有供应控制证据，不能直接得出下跌结论。' },
+    ],
+    correctOptionId: 'wait',
+    explanation: '威科夫方法要求根据市场自身行为形成证据链，证据不足时等待。',
+    source,
+  }
+}
+
+const units = Array.from({ length: 14 }, (_, unitIndex) => ({
+  id: `unit-${unitIndex + 1}`,
+  title: `知识单元 ${unitIndex + 1}`,
+  summary: '先判断市场背景，再比较价格进展与成交量，最后决定证据是否足以支持方向判断。',
+  source,
+  excerpt: '根据市场自身行为判断供需关系，证据不足时保持等待。',
+  keyPoints: ['先看背景', '比较努力与结果', '证据不足时等待'],
+  bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => bookQuestion(unitIndex, questionIndex)),
 }))
 
 const course = {
-  version: 1,
-  stages: [{ id: 'stage-1', title: '风险纪律与看盘顺序', goal: '先背景和风险，再考虑交易', units: [{
-    id: 'unit-1', title: '单笔账户风险', summary: '每笔交易先确定失效位置和止损距离，再用账户权益的 1% 计算最大名义仓位。杠杆只影响保证金占用，不能提高允许承担的风险。',
-    source: { pdfPath: 'assets/original.pdf', chapter: '聪明钱的看盘顺序', pageStart: 12, pageEnd: 12 }, excerpt: '配合当时的大背景，做出结论或推断，并使用危机管理把风险降为最低。',
-    keyPoints: ['先判断 4 小时背景', '在 1 小时图寻找结构', '先定止损再算仓位'],
-    exercise: {
-      id: 'exercise-1', prompt: '止损距离扩大时，怎样保持账户风险不变？',
-      options: [{ id: 'a', label: '相应缩小仓位' }, { id: 'b', label: '提高杠杆' }, { id: 'c', label: '忽略止损距离' }], correctOptionId: 'a',
-      evidence: [{ id: 'e1', label: '风险金额固定为账户权益的 1%' }, { id: 'e2', label: '仓位与止损距离反向变化' }], requiredEvidenceIds: ['e1', 'e2'],
-      explanationPrompt: '看到止损距离变化后，风险金额、仓位和失效条件分别应该怎样处理？',
-    },
-  }] }],
+  version: 2,
+  stages: [{ id: 'stage-1', title: '威科夫核心方法', goal: '掌握原书并迁移到真实行情', units }],
 }
 
-const marketCases = { version: 1, cases: [{
-  id: 'case-1', title: 'ETH 多周期测试案例', timeframe: '1h', context4h: '先看背景', cutoff: 100,
-  evidenceOptions: [{ id: 'e1', label: '回测缩量' }, { id: 'e2', label: '突破放量' }], candles, candles4h: candles.slice(0, 30),
-}] }
+function replayCase(unitIndex: number, caseIndex: number) {
+  const absoluteIndex = unitIndex * 3 + caseIndex
+  const start = 1_700_000_000 + absoluteIndex * 1_000_000
+  return {
+    id: `unit-${unitIndex + 1}-case-${caseIndex + 1}`,
+    unitId: `unit-${unitIndex + 1}`,
+    title: `ETH 回放 ${String(absoluteIndex + 1).padStart(2, '0')}`,
+    symbol: 'ETHUSDT',
+    market: 'Binance USD-M Futures',
+    timeframe: '1h',
+    cutoffTime: start + 48 * 3_600,
+    horizonEndTime: start + 72 * 3_600,
+    visibleCandles: Array.from({ length: 48 }, (_, index) => candle(start + index * 3_600, 3_000 + index)),
+    futureCandles: Array.from({ length: 24 }, (_, index) => candle(start + (48 + index) * 3_600, 3_050 + index * 4)),
+    candles4h: Array.from({ length: 24 }, (_, index) => candle(start - (24 - index) * 14_400, 2_980 + index * 3)),
+    correctDirection: 'up',
+    evidence: ['回测时成交量收缩', '上涨波的价格进展优于下跌波'],
+    directionAnalysis: {
+      up: '需求持续推动价格进展，标准答案为上涨。',
+      down: '截止点前没有供应持续扩大的证据。',
+      range: '需求已经产生方向性价格进展，不属于方向不明。',
+    },
+    actualOutcome: '未来 24 小时收盘上涨约 3%。',
+    metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 },
+    source,
+  }
+}
+
+const marketCases = {
+  version: 2,
+  symbol: 'ETHUSDT',
+  market: 'Binance USD-M Futures',
+  generatedAt: '2026-07-17T00:00:00.000Z',
+  cases: units.flatMap((_, unitIndex) => Array.from({ length: 3 }, (_, caseIndex) => replayCase(unitIndex, caseIndex))),
+}
 
 export async function createFixturePack() {
-  const output = path.resolve('test-results', 'fixture.wkf')
-  await mkdir(path.dirname(output), { recursive: true })
   const files = [
     { path: 'content/course.json', kind: 'course', bytes: Buffer.from(JSON.stringify(course)) },
     { path: 'content/market-cases.json', kind: 'market-cases', bytes: Buffer.from(JSON.stringify(marketCases)) },
     { path: 'assets/original.pdf', kind: 'pdf', bytes: Buffer.from('%PDF-1.4\n%%EOF') },
   ]
   const manifest = {
-    format: 'weikefu-pack', formatVersion: 1, id: 'fixture', title: '端到端测试课程', version: '1.0.0', minAppVersion: '1.0.0',
-    createdAt: '2026-07-16T00:00:00.000Z', sourceFingerprints: [],
+    format: 'weikefu-pack', formatVersion: 1, id: 'fixture', title: '端到端测试课程', version: '2.0.0', minAppVersion: '2.0.0',
+    createdAt: '2026-07-17T00:00:00.000Z', sourceFingerprints: [],
     files: files.map((file) => ({ path: file.path, kind: file.kind, sha256: createHash('sha256').update(file.bytes).digest('hex') })),
   }
   const zip = new JSZip()
   for (const file of files) zip.file(file.path, file.bytes)
   zip.file('manifest.json', JSON.stringify(manifest))
-  await writeFile(output, await zip.generateAsync({ type: 'nodebuffer' }))
-  return output
+  return {
+    name: 'fixture.wkf',
+    mimeType: 'application/octet-stream',
+    buffer: await zip.generateAsync({ type: 'nodebuffer' }),
+  }
 }

@@ -1,23 +1,22 @@
-import { FileArchive, Settings, ShieldCheck, Upload } from 'lucide-react'
+import { FileArchive, ShieldCheck, Upload } from 'lucide-react'
 
 type OnboardingPageProps = {
   onImport: (file: File) => void
-  onOpenSettings: () => void
   importing: boolean
   error?: string
 }
 
-export function OnboardingPage({ onImport, onOpenSettings, importing, error }: OnboardingPageProps) {
+export function OnboardingPage({ onImport, importing, error }: OnboardingPageProps) {
   return <main className="onboarding-page">
     <section className="onboarding-intro">
-      <div className="product-mark"><FileArchive size={24} /> 威科夫训练</div>
+      <div className="product-mark"><FileArchive size={24} /> 威科夫闯关</div>
       <p className="eyebrow">私人学习资料 · 本地保存</p>
       <h1>导入私人学习包</h1>
-      <p className="lede">完整PDF、图解、课程和ETH案例只会写入当前浏览器，不会上传到GitHub或其他服务器。</p>
+      <p className="lede">完整PDF、原书题库和ETH历史案例只会写入当前浏览器，不会上传到GitHub或其他服务器。</p>
       <div className="privacy-points">
-        <div><ShieldCheck size={19} /><span>导入前校验文件和可用空间</span></div>
+        <div><ShieldCheck size={19} /><span>导入前校验14个单元和全部标准答案</span></div>
         <div><ShieldCheck size={19} /><span>学习进度备份不包含出版物内容</span></div>
-        <div><ShieldCheck size={19} /><span>AI只接收当前题目的最小片段</span></div>
+        <div><ShieldCheck size={19} /><span>闯关运行时不调用AI或交易接口</span></div>
       </div>
     </section>
     <section className="import-panel" aria-label="学习包导入">
@@ -41,9 +40,6 @@ export function OnboardingPage({ onImport, onOpenSettings, importing, error }: O
           }}
         />
       </label>
-      <button className="secondary-command" type="button" onClick={onOpenSettings}>
-        <Settings size={18} /> AI接口设置
-      </button>
     </section>
   </main>
 }

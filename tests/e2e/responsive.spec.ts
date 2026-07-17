@@ -7,6 +7,6 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 412, height: 915 }
     await importFixturePack(page)
     const dimensions = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
     expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
-    await expect(page.getByRole('heading', { name: '今日任务' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '闯关地图' })).toBeVisible()
   })
 }

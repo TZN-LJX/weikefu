@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
+import type { ChallengeProgress, WrongItem, WrongQuestionKind } from '../domain/challenge'
 
 export type PackRecord = {
   id: string
@@ -18,14 +19,23 @@ export type AssetRecord = {
 
 export type SettingRecord = { key: string; value: unknown }
 
+export type ChallengeAttemptRecord = {
+  id?: number
+  questionId: string
+  questionKind: WrongQuestionKind
+  unitId: string
+  selectedOptionId: string
+  correct: boolean
+  createdAt: string
+}
+
 export class WeikefuDatabase extends Dexie {
   packs!: EntityTable<PackRecord, 'id'>
   assets!: EntityTable<AssetRecord, 'id'>
   settings!: EntityTable<SettingRecord, 'key'>
-  attempts!: EntityTable<Record<string, unknown> & { id?: number }, 'id'>
-  mastery!: EntityTable<Record<string, unknown> & { contentUnitId: string }, 'contentUnitId'>
-  trades!: EntityTable<Record<string, unknown> & { id: string }, 'id'>
-  journals!: EntityTable<Record<string, unknown> & { id: string }, 'id'>
+  challengeProgress!: EntityTable<ChallengeProgress, 'id'>
+  challengeAttempts!: EntityTable<ChallengeAttemptRecord, 'id'>
+  wrongItems!: EntityTable<WrongItem, 'questionId'>
 
   constructor(name = 'weikefu') {
     super(name)
@@ -37,6 +47,17 @@ export class WeikefuDatabase extends Dexie {
       mastery: 'contentUnitId, stageId, nextReviewAt',
       trades: 'id, caseId, openedAt, status',
       journals: 'id, tradeId, createdAt',
+    })
+    this.version(2).stores({
+      attempts: null,
+      mastery: null,
+      trades: null,
+      journals: null,
+      challengeProgress: 'id',
+      challengeAttempts: '++id, questionId, unitId, questionKind, createdAt',
+      wrongItems: 'questionId, unitId, status, nextReviewAt',
+    }).upgrade(async (transaction) => {
+      await transaction.table('settings').delete('ai')
     })
   }
 }
