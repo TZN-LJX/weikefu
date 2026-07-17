@@ -10,8 +10,8 @@ test('builds a checksummed private learning pack with both PDFs', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'weikefu-pack-'))
   const content = path.join(root, 'content')
   await mkdir(content)
-  await writeFile(path.join(content, 'course.json'), '{"version":1,"stages":[]}')
-  await writeFile(path.join(content, 'market-cases.json'), '{"version":1,"cases":[]}')
+  await writeFile(path.join(content, 'course.json'), '{"version":2,"stages":[]}')
+  await writeFile(path.join(content, 'market-cases.json'), '{"version":2,"cases":[]}')
   await writeFile(path.join(root, 'original.pdf'), 'original')
   await writeFile(path.join(root, 'notes.pdf'), 'notes')
   const output = path.join(root, 'private.wkf')
@@ -22,7 +22,7 @@ test('builds a checksummed private learning pack with both PDFs', async () => {
     marketCasesPath: path.join(content, 'market-cases.json'),
     originalPdfPath: path.join(root, 'original.pdf'),
     notesPdfPath: path.join(root, 'notes.pdf'),
-    now: new Date('2026-07-16T00:00:00.000Z'),
+    now: new Date('2026-07-17T00:00:00.000Z'),
   })
 
   const zip = await JSZip.loadAsync(await readFile(output))
@@ -31,5 +31,7 @@ test('builds a checksummed private learning pack with both PDFs', async () => {
     'assets/core-notes.pdf', 'assets/original.pdf', 'content/course.json', 'content/market-cases.json', 'manifest.json',
   ])
   assert.equal(manifest.files.length, 4)
+  assert.equal(manifest.version, '2.0.0')
+  assert.equal(manifest.minAppVersion, '2.0.0')
   assert.match(manifest.files[0].sha256, /^[a-f0-9]{64}$/)
 })
