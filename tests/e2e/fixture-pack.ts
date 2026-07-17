@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import JSZip from 'jszip'
 
 const source = {
@@ -81,8 +79,6 @@ const marketCases = {
 }
 
 export async function createFixturePack() {
-  const output = path.resolve('test-results', 'fixture.wkf')
-  await mkdir(path.dirname(output), { recursive: true })
   const files = [
     { path: 'content/course.json', kind: 'course', bytes: Buffer.from(JSON.stringify(course)) },
     { path: 'content/market-cases.json', kind: 'market-cases', bytes: Buffer.from(JSON.stringify(marketCases)) },
@@ -96,6 +92,9 @@ export async function createFixturePack() {
   const zip = new JSZip()
   for (const file of files) zip.file(file.path, file.bytes)
   zip.file('manifest.json', JSON.stringify(manifest))
-  await writeFile(output, await zip.generateAsync({ type: 'nodebuffer' }))
-  return output
+  return {
+    name: 'fixture.wkf',
+    mimeType: 'application/octet-stream',
+    buffer: await zip.generateAsync({ type: 'nodebuffer' }),
+  }
 }
