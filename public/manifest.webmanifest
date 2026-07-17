@@ -1,9 +1,9 @@
 {
   "name": "威科夫 ETH 决策训练",
   "short_name": "威科夫训练",
-  "description": "基于私人学习包的威科夫课程、ETH 回放与模拟交易训练",
+  "description": "基于私人学习包的威科夫原书测验与 ETH 历史回放闯关",
   "lang": "zh-CN",
-  "start_url": "/weikefu/#/today",
+  "start_url": "/weikefu/#/",
   "scope": "/weikefu/",
   "display": "standalone",
   "background_color": "#f1f4f3",

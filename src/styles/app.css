@@ -11,7 +11,6 @@
 .text-command { border: 0; padding: 5px; background: transparent; color: var(--green-2); font-weight: 800; cursor: pointer; }
 .icon-command { width: 42px; height: 42px; border: 1px solid var(--line); background: #fff; color: var(--ink); display: grid; place-items: center; cursor: pointer; }
 .error-notice { border-left: 4px solid var(--red); background: #fff0f0; padding: 11px 13px; color: #79363a; }
-.success-notice { padding: 11px 13px; border-left: 4px solid var(--green-2); background: #e9f4f0; color: #285b4d; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 .onboarding-page { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr); max-width: 1120px; margin: 0 auto; padding: 48px 28px; gap: 56px; align-items: center; }

@@ -113,7 +113,7 @@ async function loadOutline(contentDirectory) {
         id: stage.id,
         title: stage.title,
         goal: stage.goal,
-        units: stage.units.map(({ exercise, bookQuestions, ...unit }) => unit),
+        units: stage.units.map(({ exercise: _exercise, bookQuestions: _bookQuestions, ...unit }) => unit),
       })),
     }
     await writeFile(outlinePath, JSON.stringify(outline, null, 2), 'utf8')

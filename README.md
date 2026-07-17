@@ -1,32 +1,40 @@
-# React + TypeScript + Vite
+# 威科夫 ETH 闯关
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+面向手机和电脑浏览器的单人学习工具。课程按 14 个知识单元顺序解锁，每个单元只有三个步骤：
 
-Currently, two official plugins are available:
+1. 最多 5 道到期错题回顾。
+2. 10 道原书单选题，答对至少 8 道通过。
+3. 1 个真实 Binance Futures `ETHUSDT` 历史回放，选择上涨、下跌或震荡。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+错误题目会自动进入错题本。错题在正式复习中累计答对 10 次后移入已掌握池；后续突击复测答错会重新开始计数。
 
-## React Compiler
+## 使用
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+打开 <https://tzn-ljx.github.io/weikefu/>，首次使用时导入本机的 `weikefu-private-content.wkf`。学习包只保存在当前浏览器中，不会上传到 GitHub。
 
-## Expanding the Oxlint configuration
+手机和电脑的进度不会自动同步。需要换设备时，在设置页导出进度 JSON，再在另一台设备导入。替换或删除学习包也在设置页完成。
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## 隐私边界
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+公开仓库和 GitHub Pages 只包含应用代码。原始 PDF、原书题库、ETH 历史案例、`.wkf` 学习包和 API 密钥均被 Git 忽略，不会进入公开部署。
+
+应用运行时不调用 AI、不请求实时 Binance 行情、不连接交易账户，也不具备下单功能。
+
+## 本地开发
+
+```powershell
+pnpm install
+pnpm dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+完整验证：
+
+```powershell
+pnpm lint
+pnpm test:run
+pnpm test:tools
+pnpm test:e2e
+pnpm build
+```
+
+产品需求见 [`prd(new).md`](./prd(new).md)。内容制作与学习包构建脚本位于 `scripts/`，生成物保存在被 Git 忽略的 `private-content/` 和 `private-packs/`。
