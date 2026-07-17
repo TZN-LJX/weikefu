@@ -3,30 +3,56 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { AppContent } from './App'
 
-const course = {
-  version: 1 as const,
-  stages: [{ id: 's1', title: '风险纪律', goal: '控制风险', units: [{
-    id: 'u1', title: '单笔风险', summary: '每笔最多风险 1%。', keyPoints: ['先找止损', '再算仓位'],
-    source: { pdfPath: 'assets/original.pdf', chapter: '风险', pageStart: 1, pageEnd: 1 }, excerpt: '私人摘录',
-    exercise: { id: 'e1', prompt: '风险是多少？', options: [{ id: 'a', label: '1%' }, { id: 'b', label: '10%' }], correctOptionId: 'a', evidence: [{ id: 'x', label: '账户权益' }], requiredEvidenceIds: ['x'], explanationPrompt: '解释风险。' },
-  }] }],
+const source = { pdfPath: 'assets/original.pdf', chapter: '第一章', pageStart: 10, pageEnd: 10 }
+
+function candle(time: number, close = 3_000) {
+  return { time, open: close, high: close + 10, low: close - 10, close, volume: 100 }
+}
+
+function content() {
+  const units = Array.from({ length: 14 }, (_, unitIndex) => ({
+    id: `unit-${unitIndex + 1}`, title: `知识单元 ${unitIndex + 1}`,
+    summary: '先判断背景，再比较价量努力与结果。', source, excerpt: '根据市场自身行为判断。', keyPoints: ['先背景', '后证据'],
+    bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => ({
+      id: `u${unitIndex + 1}-q${questionIndex + 1}`, prompt: `原书题 ${questionIndex + 1}`,
+      options: [
+        { id: 'a', label: '等待', explanation: '证据不足。' },
+        { id: 'b', label: '做多', explanation: '需求不足。' },
+        { id: 'c', label: '做空', explanation: '供应不足。' },
+      ], correctOptionId: 'a', explanation: '按证据判断。', source,
+    })),
+  }))
+  const cases = units.flatMap((unit, unitIndex) => Array.from({ length: 3 }, (_, caseIndex) => {
+    const start = 1_700_000_000 + (unitIndex * 3 + caseIndex) * 1_000_000
+    return {
+      id: `${unit.id}-case-${caseIndex + 1}`, unitId: unit.id, title: `ETH 回放 ${caseIndex + 1}`, symbol: 'ETHUSDT', market: 'Binance USD-M Futures', timeframe: '1h',
+      cutoffTime: start + 48 * 3_600, horizonEndTime: start + 72 * 3_600,
+      visibleCandles: Array.from({ length: 48 }, (_, index) => candle(start + index * 3_600)),
+      futureCandles: Array.from({ length: 24 }, (_, index) => candle(start + (48 + index) * 3_600, 3_000 + index * 4)),
+      candles4h: Array.from({ length: 24 }, (_, index) => candle(start - (24 - index) * 14_400)),
+      correctDirection: 'up', evidence: ['需求扩大', '供应收缩'],
+      directionAnalysis: { up: '需求控制。', down: '供应不足。', range: '方向明确。' }, actualOutcome: '未来上涨。',
+      metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 }, source,
+    }
+  }))
+  return {
+    course: { version: 2, stages: [{ id: 'stage-1', title: '核心方法', goal: '顺序学习', units }] },
+    marketCases: { version: 2, symbol: 'ETHUSDT', market: 'Binance USD-M Futures', generatedAt: '2026-07-17T00:00:00.000Z', cases },
+  }
 }
 
 function fakeRepositories(hasPack: boolean) {
-  const marketCases = { version: 1, cases: [{
-    id: 'c1', title: 'ETH 回放', timeframe: '1h', context4h: '需求', cutoff: 2,
-    evidenceOptions: [{ id: 'e1', label: '缩量回测' }],
-    candles: [
-      { time: 1, open: 100, high: 102, low: 99, close: 101, volume: 10 },
-      { time: 2, open: 101, high: 103, low: 100, close: 102, volume: 11 },
-      { time: 3, open: 102, high: 105, low: 101, close: 104, volume: 15 },
-    ],
-  }] }
+  const { course, marketCases } = content()
   return {
-    getActivePack: vi.fn(async () => hasPack ? { id: 'core', title: '私人课程', version: '1.0.0', active: true, importedAt: '' } : undefined),
+    getActivePack: vi.fn(async () => hasPack ? { id: 'core', title: '私人课程', version: '2.0.0', active: true, importedAt: '' } : undefined),
     getJsonAsset: vi.fn(async (path: string) => path.includes('course') ? course : marketCases),
-    getSetting: vi.fn(async () => undefined), getJournals: vi.fn(async () => []), getTrades: vi.fn(async () => []),
-    savePack: vi.fn(), clearPartial: vi.fn(), deleteActivePack: vi.fn(), setSetting: vi.fn(), saveTrade: vi.fn(), saveJournal: vi.fn(), getAsset: vi.fn(), getBackupSnapshot: vi.fn(),
+    getChallengeProgress: vi.fn(async () => undefined),
+    getWrongItems: vi.fn(async () => []),
+    saveChallengeProgress: vi.fn(async () => undefined),
+    saveChallengeAttempt: vi.fn(async () => undefined),
+    saveWrongItem: vi.fn(async () => undefined),
+    savePack: vi.fn(), clearPartial: vi.fn(), deleteActivePack: vi.fn(), setSetting: vi.fn(), getSetting: vi.fn(), getAsset: vi.fn(),
+    resetChallengeProgress: vi.fn(), getBackupSnapshot: vi.fn(async () => ({ challengeProgress: [], challengeAttempts: [], wrongItems: [], settings: {} })), restoreProgress: vi.fn(),
   }
 }
 
@@ -34,12 +60,13 @@ describe('AppContent', () => {
   it('gates the app behind a valid private learning pack', async () => {
     render(<MemoryRouter><AppContent repositories={fakeRepositories(false) as never} /></MemoryRouter>)
     expect(await screen.findByRole('heading', { name: '导入私人学习包' })).toBeVisible()
-    expect(screen.queryByText('今日任务')).not.toBeInTheDocument()
+    expect(screen.queryByText('闯关地图')).not.toBeInTheDocument()
   })
 
-  it('opens the daily queue after loading private content', async () => {
-    render(<MemoryRouter initialEntries={['/today']}><AppContent repositories={fakeRepositories(true) as never} /></MemoryRouter>)
-    expect(await screen.findByRole('heading', { name: '今日任务' })).toBeVisible()
-    expect(screen.getByText('单笔风险')).toBeVisible()
+  it('opens the challenge map after loading private content', async () => {
+    render(<MemoryRouter><AppContent repositories={fakeRepositories(true) as never} /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: '闯关地图' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '知识单元 1' })).toBeVisible()
+    expect(screen.queryByText('今日任务')).not.toBeInTheDocument()
   })
 })

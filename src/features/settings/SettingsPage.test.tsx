@@ -5,24 +5,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from './SettingsPage'
 
 describe('SettingsPage', () => {
-  it('keeps the API key masked and saves the user supplied endpoint', async () => {
+  it('keeps pack and progress controls without any AI configuration', async () => {
     const user = userEvent.setup()
-    const onSaveAi = vi.fn()
+    const onExportBackup = vi.fn()
     render(<MemoryRouter><SettingsPage
-      aiConfig={{ endpoint: '', model: '', apiKey: '', rememberKey: false }}
-      activePack={{ title: '私人课程', version: '1.0.0' }}
-      onSaveAi={onSaveAi}
-      onTestAi={async () => undefined}
-      onReplacePack={() => undefined}
-      onDeletePack={() => undefined}
-      onExportBackup={() => undefined}
-      onImportBackup={() => undefined}
+      activePack={{ title: '私人课程', version: '2.0.0' }}
+      onReplacePack={vi.fn()}
+      onDeletePack={vi.fn()}
+      onExportBackup={onExportBackup}
+      onImportBackup={vi.fn()}
     /></MemoryRouter>)
-    expect(screen.getByLabelText('API Key')).toHaveAttribute('type', 'password')
-    await user.type(screen.getByLabelText('接口地址'), 'https://example.com/v1')
-    await user.type(screen.getByLabelText('模型名称'), 'coach-model')
-    await user.type(screen.getByLabelText('API Key'), 'secret')
-    await user.click(screen.getByRole('button', { name: '保存 AI 设置' }))
-    expect(onSaveAi).toHaveBeenCalledWith(expect.objectContaining({ endpoint: 'https://example.com/v1', model: 'coach-model', apiKey: '' }))
+
+    expect(screen.getByText('私人课程 · v2.0.0')).toBeVisible()
+    expect(screen.queryByLabelText('API Key')).not.toBeInTheDocument()
+    expect(screen.queryByText('AI 教练')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '导出进度' }))
+    expect(onExportBackup).toHaveBeenCalledTimes(1)
   })
 })

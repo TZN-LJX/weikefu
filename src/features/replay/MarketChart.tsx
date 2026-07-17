@@ -6,7 +6,7 @@ import {
   createChart,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import type { Candle } from './replayState'
+import type { Candle } from '../pack/contentSchema'
 
 type MarketChartProps = {
   candles: Candle[]
