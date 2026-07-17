@@ -107,7 +107,7 @@
 .future-lock { display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: #7d5b18; background: #fff6df; padding: 7px 9px; border: 1px solid #ead59c; white-space: nowrap; }
 .chart-shell { position: relative; min-width: 0; background: #111a1f; border: 1px solid #2d3b42; }
 .market-chart { width: 100%; min-height: 330px; }
-.chart-timeframes { position: absolute; z-index: 2; top: 9px; right: 9px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #45545c; background: #1c282e; }
+.chart-timeframes { position: relative; z-index: 2; width: max-content; margin: 8px 8px 0 auto; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #45545c; background: #1c282e; }
 .chart-timeframes button { min-height: 36px; padding: 6px 10px; border: 0; border-right: 1px solid #45545c; background: transparent; color: #aab6bb; font-size: 11px; cursor: pointer; }
 .chart-timeframes button:last-child { border-right: 0; }
 .chart-timeframes button.active { color: #fff; background: #2f5f56; }

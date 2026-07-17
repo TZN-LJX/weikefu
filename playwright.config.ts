@@ -9,15 +9,15 @@ export default defineConfig({
   fullyParallel: false,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:4173/weikefu/',
+    baseURL: 'http://127.0.0.1:4181/weikefu/',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: systemEdge ? { executablePath: systemEdge } : undefined,
   },
   webServer: {
-    command: 'pnpm build && pnpm preview --host 127.0.0.1',
-    url: 'http://127.0.0.1:4173/weikefu/',
-    reuseExistingServer: true,
+    command: 'pnpm build && pnpm preview --host 127.0.0.1 --port 4181 --strictPort',
+    url: 'http://127.0.0.1:4181/weikefu/',
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   projects: [

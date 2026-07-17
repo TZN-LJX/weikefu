@@ -1,28 +1,48 @@
 import { expect, test } from '@playwright/test'
-import { importFixturePack } from './helpers'
+import { completeBookQuiz, importFixturePack } from './helpers'
 
-test('moves from lesson to evidence-first correction without revealing the answer', async ({ page }) => {
+test('records an incorrect book answer and shows the fixed source-backed answer', async ({ page }) => {
   await importFixturePack(page)
-  await page.getByRole('button', { name: '开始今日训练' }).click()
-  await expect(page.getByRole('heading', { name: '单笔账户风险' })).toBeVisible()
-  await page.getByRole('button', { name: '进入本节检验' }).click()
-  await page.getByRole('button', { name: '提高杠杆' }).click()
-  await page.getByRole('button', { name: '提交判断' }).click()
-  await expect(page.getByRole('heading', { name: '重新检查证据' })).toBeVisible()
-  await expect(page.getByText('风险金额固定为账户权益的 1%')).toBeVisible()
-  await expect(page.getByText('相应缩小仓位')).toHaveCount(0)
+  await page.getByRole('button', { name: '开始 知识单元 1' }).click()
+  await page.getByRole('radio', { name: '立即做多' }).click()
+  await page.getByRole('button', { name: '提交答案' }).click()
+
+  await expect(page.getByText('回答错误')).toBeVisible()
+  await expect(page.getByText('标准答案：等待更多证据')).toBeVisible()
+  await expect(page.getByText('第一章 聪明钱的看盘顺序 · 第 12-14 页')).toBeVisible()
+  await page.getByText('威科夫闯关').click()
+  await expect(page.getByLabel('1 道活跃错题')).toBeVisible()
 })
 
-test('keeps future candles hidden until a complete replay submission', async ({ page }) => {
+test('completes the three-step unit and unlocks the next unit', async ({ page }) => {
   await importFixturePack(page)
-  await page.goto('./#/replay/case-1')
+  await page.getByRole('button', { name: '开始 知识单元 1' }).click()
+  await completeBookQuiz(page)
+
   await expect(page.getByText('未来走势已隐藏')).toBeVisible()
-  await expect(page.getByRole('button', { name: '揭示后续 5 根K线' })).toHaveCount(0)
-  await page.getByLabel('4小时市场背景').selectOption('bearish')
-  await page.getByLabel('1小时结构').selectOption('distribution')
-  await page.getByLabel('回测缩量').check()
-  await page.getByLabel('不交易').check()
-  await page.getByLabel('判断失效条件').fill('放量突破阻力并回测成功')
-  await page.getByRole('button', { name: '提交整体判断' }).click()
-  await expect(page.getByRole('button', { name: '揭示后续 5 根K线' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: '上涨' })).toBeVisible()
+  await page.getByRole('button', { name: '1小时走势' }).click()
+  await page.getByRole('radio', { name: '上涨' }).click()
+  await page.getByRole('button', { name: '提交走势判断' }).click()
+  await expect(page.getByText('标准答案：上涨')).toBeVisible()
+  await expect(page.getByText('未来 24 小时收盘上涨约 3%。')).toBeVisible()
+  await page.getByRole('button', { name: '完成本单元' }).click()
+  await expect(page.getByRole('heading', { name: '本单元完成' })).toBeVisible()
+  await page.locator('.unit-complete').getByRole('button', { name: '返回闯关地图' }).click()
+  await expect(page.getByRole('button', { name: '开始 知识单元 2' })).toBeEnabled()
+})
+
+test('keeps future candles hidden before submission and resumes progress after refresh', async ({ page }) => {
+  await importFixturePack(page)
+  await page.getByRole('button', { name: '开始 知识单元 1' }).click()
+  await completeBookQuiz(page)
+  await expect(page.getByText('未来走势已隐藏')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'ETH 回放 01' })).toBeVisible()
+  await expect(page.getByText('未来走势已隐藏')).toBeVisible()
+  await page.getByRole('radio', { name: '下跌' }).click()
+  await page.getByRole('button', { name: '提交走势判断' }).click()
+  await expect(page.getByText('未来 24 小时收盘上涨约 3%。')).toBeVisible()
+  await page.getByRole('button', { name: '换一个案例继续' }).click()
+  await expect(page.getByRole('heading', { name: 'ETH 回放 02' })).toBeVisible()
 })
