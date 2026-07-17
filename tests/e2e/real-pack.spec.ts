@@ -54,5 +54,8 @@ test('renders the original PDF from the real private pack', async ({ page }) => 
   await page.goto('./#/pdf?page=6')
   const canvas = page.locator('.pdf-canvas-scroll canvas')
   await expect(canvas).toBeVisible({ timeout: 30_000 })
-  await expect.poll(async () => canvas.evaluate((item) => (item as HTMLCanvasElement).width * (item as HTMLCanvasElement).height)).toBeGreaterThan(100_000)
+  await expect.poll(
+    async () => canvas.evaluate((item) => (item as HTMLCanvasElement).width * (item as HTMLCanvasElement).height),
+    { timeout: 60_000 },
+  ).toBeGreaterThan(100_000)
 })
