@@ -7,17 +7,13 @@ import type {
   SourceReference,
 } from '../../features/pack/contentSchema'
 
-export const fixtureSource: SourceReference = {
-  pdfPath: 'assets/original.pdf',
-  chapter: '第一章 聪明钱的看盘顺序',
-  pageStart: 12,
-  pageEnd: 14,
-}
-
-const trainingSource: SourceReference = {
-  ...fixtureSource,
-  pageStart: 17,
-  pageEnd: 25,
+function createFixtureSource(): SourceReference {
+  return {
+    pdfPath: 'assets/original.pdf',
+    chapter: '第一章 聪明钱的看盘顺序',
+    pageStart: 12,
+    pageEnd: 14,
+  }
 }
 
 type FixtureMarketCase = Omit<MarketCase, 'cutoffJudgment' | 'annotations'> & {
@@ -39,7 +35,11 @@ function candle(time: number, close: number) {
   return { time, open: close - 2, high: close + 8, low: close - 8, close, volume: 100 }
 }
 
-export function createFixtureBookQuestion(unitIndex: number, questionIndex: number): ChoiceQuestion {
+export function createFixtureBookQuestion(
+  unitIndex: number,
+  questionIndex: number,
+  source = createFixtureSource(),
+): ChoiceQuestion {
   return {
     id: `unit-${unitIndex + 1}-question-${questionIndex + 1}`,
     prompt: `知识单元 ${unitIndex + 1} 测验 ${questionIndex + 1}：证据不足时应该怎样处理？`,
@@ -50,11 +50,11 @@ export function createFixtureBookQuestion(unitIndex: number, questionIndex: numb
     ],
     correctOptionId: 'wait',
     explanation: '威科夫方法要求根据市场自身行为形成证据链，证据不足时等待。',
-    source: fixtureSource,
+    source,
   }
 }
 
-function standardReplayCase(unitIndex: number, caseIndex: number): FixtureMarketCase {
+function standardReplayCase(unitIndex: number, caseIndex: number, source: SourceReference): FixtureMarketCase {
   const absoluteIndex = unitIndex * 3 + caseIndex
   const start = 1_700_000_000 + absoluteIndex * 1_000_000
   return {
@@ -83,11 +83,11 @@ function standardReplayCase(unitIndex: number, caseIndex: number): FixtureMarket
     },
     actualOutcome: '未来 24 小时收盘上涨约 3%。',
     metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 },
-    source: fixtureSource,
+    source,
   }
 }
 
-function trainingReplayCase(caseIndex: number, symbol: MarketSymbol): FixtureMarketCase {
+function trainingReplayCase(caseIndex: number, symbol: MarketSymbol, source: SourceReference): FixtureMarketCase {
   const absoluteIndex = 42 + caseIndex
   const start = 1_700_000_000 + absoluteIndex * 1_000_000
   const directions: Direction[] = ['up', 'down', 'range']
@@ -128,20 +128,22 @@ function trainingReplayCase(caseIndex: number, symbol: MarketSymbol): FixtureMar
         ? '未来一天收盘下跌约 3%。'
         : '未来一天保持在震荡区间。',
     metrics,
-    source: fixtureSource,
+    source,
   }
 }
 
 export function createChallengeContentFixture() {
+  const source = createFixtureSource()
+  const trainingSource: SourceReference = { ...source, pageStart: 17, pageEnd: 25 }
   const standardUnits: ContentUnitInput[] = Array.from({ length: 14 }, (_, unitIndex) => ({
     id: `unit-${unitIndex + 1}`,
     title: `知识单元 ${unitIndex + 1}`,
     summary: '先判断市场背景，再比较价格进展与成交量，最后决定证据是否足以支持方向判断。',
-    source: fixtureSource,
+    source,
     excerpt: '根据市场自身行为判断供需关系，证据不足时保持等待。',
     excerptPage: 12,
     keyPoints: ['先看背景', '比较努力与结果', '证据不足时等待'],
-    bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => createFixtureBookQuestion(unitIndex, questionIndex)),
+    bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => createFixtureBookQuestion(unitIndex, questionIndex, source)),
   }))
   const trainingUnit: ContentUnitInput = {
     id: 'stage-8-real-case-training',
@@ -163,10 +165,10 @@ export function createChallengeContentFixture() {
     ],
   }
   const standardCases = standardUnits.flatMap((_, unitIndex) => (
-    Array.from({ length: 3 }, (_, caseIndex) => standardReplayCase(unitIndex, caseIndex))
+    Array.from({ length: 3 }, (_, caseIndex) => standardReplayCase(unitIndex, caseIndex, source))
   ))
   const trainingCases = Array.from({ length: 100 }, (_, caseIndex) => (
-    trainingReplayCase(caseIndex, caseIndex % 2 === 0 ? 'ETHUSDT' : 'BTCUSDT')
+    trainingReplayCase(caseIndex, caseIndex % 2 === 0 ? 'ETHUSDT' : 'BTCUSDT', source)
   ))
   const marketCases = {
     version: 2 as const,
