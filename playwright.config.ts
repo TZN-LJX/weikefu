@@ -17,7 +17,7 @@ export default defineConfig({
   webServer: {
     command: 'pnpm build && pnpm preview --host 127.0.0.1 --port 4181 --strictPort',
     url: 'http://127.0.0.1:4181/weikefu/',
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.WEIKEFU_REUSE_SERVER === '1',
     timeout: 120_000,
   },
   projects: [

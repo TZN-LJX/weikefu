@@ -18,7 +18,7 @@ test('imports the real pack and completes its first source-backed challenge', as
   const { course, marketCases } = await readPackContent()
   const firstUnit = course.stages.flatMap((stage: { units: unknown[] }) => stage.units)[0]
   const questionByPrompt = new Map(firstUnit.bookQuestions.map((question: { prompt: string }) => [question.prompt, question]))
-  const firstCase = marketCases.cases.find((item: { unitId: string }) => item.unitId === firstUnit.id)
+  const unitCases = marketCases.cases.filter((item: { unitId: string }) => item.unitId === firstUnit.id)
   const directionLabels = { up: '上涨', down: '下跌', range: '震荡／方向不明' }
 
   await page.goto('./#/')
@@ -36,11 +36,16 @@ test('imports the real pack and completes its first source-backed challenge', as
     await page.getByRole('button', { name: index === 9 ? '查看本轮结果' : '下一题' }).click()
   }
   await page.getByRole('button', { name: '进入ETH历史回放' }).click()
-  await expect(page.getByRole('heading', { name: firstCase.title })).toBeVisible()
+  const visibleCaseTitle = await page.locator('.replay-question-header h2').innerText()
+  const firstCase = unitCases.find((item: { title: string }) => item.title === visibleCaseTitle)
+  if (!firstCase) throw new Error(`Visible replay case not found in pack: ${visibleCaseTitle}`)
   await expect(page.getByText('未来走势已隐藏')).toBeVisible()
   await page.getByRole('radio', { name: directionLabels[firstCase.correctDirection as keyof typeof directionLabels], exact: true }).click()
   await page.getByRole('button', { name: '提交走势判断' }).click()
-  await expect(page.getByText(`标准答案：${directionLabels[firstCase.correctDirection as keyof typeof directionLabels]}`)).toBeVisible()
+  await expect(page.getByText(`实际结果标签：${directionLabels[firstCase.correctDirection as keyof typeof directionLabels]}`)).toBeVisible()
+  await expect(page.locator('.answer-feedback')).not.toContainText(/recentReturn|priorReturn|rangePosition|volumeRatio|\b1\d{9}\b/)
+  await expect(page.locator('.market-chart-wrap')).not.toHaveAttribute('data-annotation-count', '0')
+  await expect(page.getByText(firstUnit.excerpt)).toBeVisible()
   await expect(page.getByText(firstCase.actualOutcome)).toBeVisible()
   await page.getByRole('button', { name: '完成本单元' }).click()
   await expect(page.getByRole('heading', { name: '本单元完成' })).toBeVisible()

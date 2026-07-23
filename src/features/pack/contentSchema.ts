@@ -38,6 +38,7 @@ export const ContentUnitSchema = z.object({
   summary: z.string().min(1),
   source: SourceReferenceSchema,
   excerpt: z.string().min(1),
+  excerptPage: z.number().int().positive().optional(),
   keyPoints: z.array(z.string().min(1)).min(1),
   bookQuestions: z.array(ChoiceQuestionSchema).min(20),
 }).superRefine((unit, context) => {
@@ -80,6 +81,11 @@ export const CandleSchema = z.object({
   'K线高低价无效',
 )
 
+export const ReplayAnnotationSchema = z.object({
+  time: z.number().int().nonnegative(),
+  description: z.string().min(1).optional(),
+})
+
 function hasInterval(candles: z.infer<typeof CandleSchema>[], seconds: number) {
   return candles.every((candle, index) => index === 0 || candle.time - candles[index - 1].time === seconds)
 }
@@ -97,6 +103,8 @@ export const MarketCaseSchema = z.object({
   futureCandles: z.array(CandleSchema).length(24),
   candles4h: z.array(CandleSchema).min(24),
   correctDirection: DirectionSchema,
+  cutoffJudgment: DirectionSchema.optional(),
+  annotations: z.array(ReplayAnnotationSchema).max(8).optional(),
   evidence: z.array(z.string().min(1)).min(2),
   directionAnalysis: z.object({
     up: z.string().min(1),
@@ -125,6 +133,10 @@ export const MarketCaseSchema = z.object({
   }
   if (!hasInterval(marketCase.candles4h, 14_400)) {
     context.addIssue({ code: 'custom', path: ['candles4h'], message: '4小时K线时间必须连续' })
+  }
+  const visibleTimes = new Set(marketCase.visibleCandles.map((candle) => candle.time))
+  if (marketCase.annotations?.some((annotation) => !visibleTimes.has(annotation.time))) {
+    context.addIssue({ code: 'custom', path: ['annotations'], message: 'K线标注必须指向截止点前的可见K线' })
   }
   const lastVisible = marketCase.visibleCandles.at(-1)
   const firstFuture = marketCase.futureCandles[0]

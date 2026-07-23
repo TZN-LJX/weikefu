@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ChoiceQuestion, SourceReference } from '../pack/contentSchema'
 import { scoreBookQuiz } from '../../domain/challenge'
 import { ChoiceQuestionCard, type ChoiceAnswer } from './ChoiceQuestionCard'
+import { prepareQuizAttempt } from './quizAttempt'
 
 type BookQuizStepProps = {
   unitId: string
@@ -13,23 +14,8 @@ type BookQuizStepProps = {
   onOpenSource: (source: SourceReference) => void
 }
 
-function shuffle<T>(items: T[], random: () => number) {
-  const shuffled = [...items]
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(random() * (index + 1))
-    ;[shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]]
-  }
-  return shuffled
-}
-
-function selectAttempt(questionPool: ChoiceQuestion[], previousIds: Set<string>, random: () => number) {
-  const unseen = shuffle(questionPool.filter((question) => !previousIds.has(question.id)), random)
-  const seen = shuffle(questionPool.filter((question) => previousIds.has(question.id)), random)
-  return [...unseen, ...seen].slice(0, 10)
-}
-
 export function BookQuizStep({ unitId, questionPool, random = Math.random, onAnswer, onWrong, onPassed, onOpenSource }: BookQuizStepProps) {
-  const [attemptQuestions, setAttemptQuestions] = useState(() => selectAttempt(questionPool, new Set(), random))
+  const [attemptQuestions, setAttemptQuestions] = useState(() => prepareQuizAttempt(questionPool, new Set(), random))
   const [questionIndex, setQuestionIndex] = useState(0)
   const [answers, setAnswers] = useState<boolean[]>([])
   const [result, setResult] = useState<ReturnType<typeof scoreBookQuiz>>()
@@ -46,7 +32,7 @@ export function BookQuizStep({ unitId, questionPool, random = Math.random, onAns
       {result.passed ? <button className="primary-command" type="button" onClick={onPassed}>进入ETH历史回放</button>
         : <button className="primary-command" type="button" onClick={() => {
           const previousIds = new Set(attemptQuestions.map((question) => question.id))
-          setAttemptQuestions(selectAttempt(questionPool, previousIds, random))
+          setAttemptQuestions(prepareQuizAttempt(questionPool, previousIds, random))
           setQuestionIndex(0)
           setAnswers([])
           setResult(undefined)

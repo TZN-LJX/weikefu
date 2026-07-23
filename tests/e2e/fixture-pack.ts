@@ -33,6 +33,7 @@ const units = Array.from({ length: 14 }, (_, unitIndex) => ({
   summary: '先判断市场背景，再比较价格进展与成交量，最后决定证据是否足以支持方向判断。',
   source,
   excerpt: '根据市场自身行为判断供需关系，证据不足时保持等待。',
+  excerptPage: 12,
   keyPoints: ['先看背景', '比较努力与结果', '证据不足时等待'],
   bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => bookQuestion(unitIndex, questionIndex)),
 }))
@@ -58,11 +59,16 @@ function replayCase(unitIndex: number, caseIndex: number) {
     futureCandles: Array.from({ length: 24 }, (_, index) => candle(start + (48 + index) * 3_600, 3_050 + index * 4)),
     candles4h: Array.from({ length: 24 }, (_, index) => candle(start - (24 - index) * 14_400, 2_980 + index * 3)),
     correctDirection: 'up',
-    evidence: ['回测时成交量收缩', '上涨波的价格进展优于下跌波'],
+    cutoffJudgment: 'range',
+    annotations: [
+      { time: start + 40 * 3_600, description: 'A柱需求扩大' },
+      { time: start + 44 * 3_600, description: 'B柱回调供应收缩' },
+    ],
+    evidence: ['回测时成交量收缩，但突破尚未得到确认', '上涨波与下跌波都没有形成可持续的单边优势'],
     directionAnalysis: {
-      up: '需求持续推动价格进展，标准答案为上涨。',
-      down: '截止点前没有供应持续扩大的证据。',
-      range: '需求已经产生方向性价格进展，不属于方向不明。',
+      up: '上涨需要有效突破、需求跟随和回测确认，截止点前证据仍不足。',
+      down: '下跌需要供应持续扩大和向下价格进展，截止点前没有出现。',
+      range: '截止点判断为等待／方向不明，供需尚未形成可持续的单边优势。',
     },
     actualOutcome: '未来 24 小时收盘上涨约 3%。',
     metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 },

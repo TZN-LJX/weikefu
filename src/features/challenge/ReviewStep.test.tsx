@@ -22,6 +22,20 @@ const question: ChoiceQuestion = {
 }
 
 describe('ReviewStep', () => {
+  it('reorders book-question options once for the review attempt', () => {
+    render(<ReviewStep
+      entries={[{ item, kind: 'book', question }]}
+      random={() => 0}
+      onReviewAnswer={vi.fn()}
+      onComplete={vi.fn()}
+      onOpenSource={vi.fn()}
+    />)
+
+    const options = screen.getAllByRole('radio')
+    expect(options[0]).not.toHaveAccessibleName('等待')
+    expect(options[1]).toHaveAccessibleName('等待')
+  })
+
   it('records the scheduled review result and completes the queue', async () => {
     const user = userEvent.setup()
     const onReviewAnswer = vi.fn()

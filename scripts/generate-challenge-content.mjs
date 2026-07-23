@@ -36,7 +36,40 @@ export function validateQuestionSet(value) {
   const questions = QuestionSetSchema.parse(value)
   const prompts = questions.map((question) => question.prompt.trim())
   if (new Set(prompts).size !== prompts.length) throw new Error('20 道题的题干必须唯一')
+  const correctPositions = questions.map((question) => question.options.findIndex((option) => option.id === question.correctOptionId))
+  const availablePositionCount = Math.min(...questions.map((question) => question.options.length))
+  const positionCounts = Array.from({ length: availablePositionCount }, (_, position) => (
+    correctPositions.filter((candidate) => candidate === position).length
+  ))
+  const repeatsPositionThreeTimes = correctPositions.some((position, index) => (
+    index >= 2 && position === correctPositions[index - 1] && position === correctPositions[index - 2]
+  ))
+  if (positionCounts.some((count) => count === 0)
+    || Math.max(...positionCounts) - Math.min(...positionCounts) > 1
+    || repeatsPositionThreeTimes) {
+    throw new Error('正确答案位置分布必须覆盖所有可用位置、数量差不超过1，且不能连续三题相同')
+  }
   return questions
+}
+
+export function balanceQuestionOptionPositions(value) {
+  const questions = QuestionSetSchema.parse(value)
+  const positionCount = Math.min(...questions.map((question) => question.options.length))
+  const counts = Array.from({ length: positionCount }, () => 0)
+  const assigned = []
+  return questions.map((question) => {
+    const blockedPosition = assigned.length >= 2 && assigned.at(-1) === assigned.at(-2) ? assigned.at(-1) : undefined
+    const targetPosition = Array.from({ length: positionCount }, (_, position) => position)
+      .filter((position) => position !== blockedPosition)
+      .sort((left, right) => counts[left] - counts[right] || left - right)[0]
+    const correctIndex = question.options.findIndex((option) => option.id === question.correctOptionId)
+    const options = [...question.options]
+    const [correctOption] = options.splice(correctIndex, 1)
+    options.splice(targetPosition, 0, correctOption)
+    counts[targetPosition] += 1
+    assigned.push(targetPosition)
+    return { ...question, options }
+  })
 }
 
 export function buildSourcePacket(source, pageRange) {
@@ -49,6 +82,28 @@ export function buildSourcePacket(source, pageRange) {
     if (!selected.some((candidate) => candidate.page === page.page)) selected.push(page)
   }
   return selected.map((page) => `【原书第${page.page}页】\n${page.text.slice(0, 1800)}`).join('\n\n')
+}
+
+function normalizeQuote(text) {
+  return text.replace(/[“”‘’'"\s]/g, '')
+}
+
+export function resolveExcerptPage(source, unit) {
+  const excerpt = normalizeQuote(unit.excerpt ?? '')
+  const matches = source.pages.filter((page) => (
+    page.page >= unit.source.pageStart
+    && page.page <= unit.source.pageEnd
+    && excerpt.length > 0
+    && normalizeQuote(page.text ?? '').includes(excerpt)
+  ))
+  if (unit.excerptPage !== undefined) {
+    if (!Number.isInteger(unit.excerptPage) || !matches.some((page) => page.page === unit.excerptPage)) {
+      throw new Error(`${unit.id ?? '知识单元'} 无法确认逐字引文的准确页码`)
+    }
+    return unit.excerptPage
+  }
+  if (matches.length === 1) return matches[0].page
+  throw new Error(`${unit.id ?? '知识单元'} 无法确认逐字引文的准确页码`)
 }
 
 function parseJsonObject(content) {
@@ -89,7 +144,7 @@ async function requestQuestionBatch(config, unit, sourcePacket, batchIndex, excl
         },
         {
           role: 'user',
-          content: `为下面知识单元生成第${batchIndex}批、恰好10道中文单选题。${batchIndex === 1 ? '本批重点覆盖定义、判断顺序和供需含义。' : '本批重点覆盖努力与结果、常见误判和陌生情境迁移。'}\n\n单元：${unit.title}\n单元摘要：${unit.summary}\n判断要点：${unit.keyPoints.join('；')}\n原书章节：${unit.source.chapter}\n原书页码：${unit.source.pageStart}-${unit.source.pageEnd}\n禁止重复的题干：${excludedPrompts.length ? excludedPrompts.join('｜') : '无'}\n\n输出结构：\n{"questions":[{"id":"q01","prompt":"题干","options":[{"id":"a","label":"选项","explanation":"该选项为什么成立或不成立"},{"id":"b","label":"选项","explanation":"..."},{"id":"c","label":"选项","explanation":"..."}],"correctOptionId":"a","explanation":"结合原书概念说明标准答案"}]}\n\n硬性要求：\n1. 恰好10题，每题3到4个选项且只有一个正确答案。\n2. 不能只是同义改写，不得重复禁止题干。\n3. 每个错误选项都要解释为什么不成立。\n4. 不允许出现“根据以上材料”“原文说”等泄露答题方式的表述。\n5. 不考具体页码，不使用未来行情证明答案。\n\n原书材料：\n${sourcePacket}`,
+          content: `为下面知识单元生成第${batchIndex}批、恰好10道中文单选题。${batchIndex === 1 ? '本批重点覆盖定义、判断顺序和供需含义。' : '本批重点覆盖努力与结果、常见误判和陌生情境迁移。'}\n\n单元：${unit.title}\n单元摘要：${unit.summary}\n判断要点：${unit.keyPoints.join('；')}\n原书章节：${unit.source.chapter}\n原书页码：${unit.source.pageStart}-${unit.source.pageEnd}\n禁止重复的题干：${excludedPrompts.length ? excludedPrompts.join('｜') : '无'}\n\n输出结构：\n{"questions":[{"id":"q01","prompt":"题干","options":[{"id":"a","label":"选项","explanation":"该选项为什么成立或不成立"},{"id":"b","label":"选项","explanation":"..."},{"id":"c","label":"选项","explanation":"..."}],"correctOptionId":"填写本题正确选项的id，各题不得固定为同一个位置","explanation":"结合原书概念说明标准答案"}]}\n\n硬性要求：\n1. 恰好10题，每题3到4个选项且只有一个正确答案，优先使用3个选项。\n2. 不能只是同义改写，不得重复禁止题干。\n3. 每个错误选项都要解释为什么不成立。\n4. 不允许出现“根据以上材料”“原文说”等泄露答题方式的表述。\n5. 不考具体页码，不使用未来行情证明答案。\n6. 正确答案不得固定使用同一个 correctOptionId；程序会在保存前将前三个位置均衡整理。\n\n原书材料：\n${sourcePacket}`,
         },
       ],
     }),
@@ -145,11 +200,12 @@ async function main() {
   for (const stage of outline.stages) {
     const units = []
     for (const unit of stage.units) {
+      const excerptPage = resolveExcerptPage(pages, unit)
       const draftPath = path.join(draftDirectory, `${unit.id}.json`)
       let questions
       if (process.env.WEIKEFU_REGENERATE !== '1') {
         try {
-          questions = validateQuestionSet(JSON.parse(await readFile(draftPath, 'utf8')))
+          questions = validateQuestionSet(balanceQuestionOptionPositions(JSON.parse(await readFile(draftPath, 'utf8'))))
         } catch {
           questions = undefined
         }
@@ -158,10 +214,10 @@ async function main() {
         const packet = buildSourcePacket(pages, unit.source)
         const firstBatch = await withRetry(() => requestQuestionBatch(config, unit, packet, 1))
         const secondBatch = await withRetry(() => requestQuestionBatch(config, unit, packet, 2, firstBatch.map((question) => question.prompt)))
-        questions = validateQuestionSet([...firstBatch, ...secondBatch])
+        questions = validateQuestionSet(balanceQuestionOptionPositions([...firstBatch, ...secondBatch]))
         await writeFile(draftPath, JSON.stringify(questions, null, 2), 'utf8')
       }
-      units.push({ ...unit, bookQuestions: normalizeQuestionIds(unit, questions) })
+      units.push({ ...unit, excerptPage, bookQuestions: normalizeQuestionIds(unit, questions) })
       completed += 1
       process.stdout.write(`原书题库 ${completed}/${total} 已校验\n`)
     }

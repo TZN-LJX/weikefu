@@ -169,10 +169,33 @@ function visibleFacts(candidate) {
 
 const AnalysisSchema = z.object({
   caseId: z.string().min(1),
+  cutoffJudgment: z.enum(directions),
   evidence: z.array(z.string().min(1)).min(3).max(6),
+  annotations: z.array(z.object({
+    time: z.number().int().nonnegative(),
+    description: z.string().min(1).optional(),
+  })).min(1).max(8),
   directionAnalysis: z.object({ up: z.string().min(1), down: z.string().min(1), range: z.string().min(1) }),
-  actualOutcome: z.string().min(1),
+}).superRefine((analysis, context) => {
+  const learnerText = [
+    ...analysis.evidence,
+    analysis.directionAnalysis.up,
+    analysis.directionAnalysis.down,
+    analysis.directionAnalysis.range,
+  ].join('\n')
+  if (/recentReturn|priorReturn|rangePosition|volumeRatio|\b1\d{9}\b/.test(learnerText)) {
+    context.addIssue({ code: 'custom', message: '学习者文本不能包含内部指标名或Unix时间戳' })
+  }
+  const annotationTimes = analysis.annotations.map((annotation) => annotation.time)
+  if (new Set(annotationTimes).size !== annotationTimes.length
+    || annotationTimes.some((time, index) => index > 0 && time <= annotationTimes[index - 1])) {
+    context.addIssue({ code: 'custom', path: ['annotations'], message: 'K线标注必须按时间升序且不能重复' })
+  }
 })
+
+export function validateReplayAnalyses(value) {
+  return z.array(AnalysisSchema).length(3).parse(value)
+}
 
 function parseJsonObject(content) {
   const start = content.indexOf('{')
@@ -181,14 +204,16 @@ function parseJsonObject(content) {
   return JSON.parse(content.slice(start, end + 1))
 }
 
-async function requestAnalyses(config, unit, cases, sourcePacket) {
-  const summaries = cases.map((candidate) => ({
+export function buildAnalysisSummaries(cases) {
+  return cases.map((candidate) => ({
     caseId: candidate.id,
-    correctDirection: candidate.correctDirection,
     cutoffTime: new Date(candidate.cutoffTime * 1_000).toISOString(),
-    metrics: candidate.metrics,
     visibleFacts: visibleFacts(candidate),
   }))
+}
+
+async function requestAnalyses(config, unit, cases, sourcePacket) {
+  const summaries = buildAnalysisSummaries(cases)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 240_000)
   const response = await fetch(`${config.endpoint.replace(/\/$/, '')}/chat/completions`, {
@@ -200,8 +225,8 @@ async function requestAnalyses(config, unit, cases, sourcePacket) {
       max_completion_tokens: 9_000,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: '你是严谨的威科夫历史行情题目编辑。证据分析只能使用截止点前数据，未来数据只用于“实际走势”段落。只输出合法JSON。' },
-        { role: 'user', content: `为知识单元“${unit.title}”的3个ETHUSDT永续历史案例编写固定解析。\n判断要点：${unit.keyPoints.join('；')}\n原书章节与页码：${unit.source.chapter}，${unit.source.pageStart}-${unit.source.pageEnd}页。\n\n输出：{"analyses":[{"caseId":"...","evidence":["3到6条截止点前可观察价量事实"],"directionAnalysis":{"up":"上涨为何成立或不成立","down":"下跌为何成立或不成立","range":"震荡为何成立或不成立"},"actualOutcome":"未来24小时实际走势，包含净变化和主要路径"}]}\n\n要求：\n1. directionAnalysis必须分别解释三个选项，不能只写标准答案。\n2. evidence只能引用visibleFacts与last24Candles，不得偷看metrics中的未来结果。\n3. 解析要把截止点前事实对应到本单元的原书判断要点。\n4. correctDirection与metrics由程序客观确定，不得修改。\n\n案例数据：${JSON.stringify(summaries)}\n\n原书材料：\n${sourcePacket}` },
+        { role: 'system', content: '你是严谨的威科夫历史行情题目编辑。你只能看到并使用截止点前数据，必须独立给出当时的合理判断。只输出合法JSON。' },
+        { role: 'user', content: `为知识单元“${unit.title}”的3个ETHUSDT永续历史案例编写固定解析。\n判断要点：${unit.keyPoints.join('；')}\n原书章节与页码：${unit.source.chapter}，${unit.source.pageStart}-${unit.source.pageEnd}页。\n\n输出：{"analyses":[{"caseId":"...","cutoffJudgment":"up|down|range","evidence":["3到6条截止点前可观察价量事实"],"annotations":[{"time":1700000000,"description":"A柱的价量意义"}],"directionAnalysis":{"up":"上涨为何成立或不成立","down":"下跌为何成立或不成立","range":"震荡为何成立或不成立"}}]}\n\n要求：\n1. cutoffJudgment是截止点当时的独立判断，只能根据可见行情在up、down、range中选择。\n2. directionAnalysis必须分别解释三个选项，不能只写所选判断。\n3. evidence只能引用visibleFacts与last24Candles。\n4. 解析要按“背景与关键位置→当前位置→价量形态→形态性质→努力与结果→三个选项→结论和失效条件”的SOP组织。\n5. annotations必须选择1到8根截止点前关键K线，按time升序排列；evidence用A柱、B柱等称呼，不得直接显示time。\n6. evidence与directionAnalysis只能使用“最近24小时涨跌幅”“此前24小时涨跌幅”“最近120小时区间位置”“成交量对比”等中文名称，禁止recentReturn、priorReturn、rangePosition、volumeRatio和十位Unix时间戳。\n7. 解析必须对应给定原书材料，结论必须包含失效条件。\n\n截止点前案例数据：${JSON.stringify(summaries)}\n\n原书材料：\n${sourcePacket}` },
       ],
     }),
   }).finally(() => clearTimeout(timeout))
@@ -209,7 +234,7 @@ async function requestAnalyses(config, unit, cases, sourcePacket) {
   const data = await response.json()
   const content = data.choices?.[0]?.message?.content
   if (!content) throw new Error('案例解析生成返回为空')
-  const analyses = z.array(AnalysisSchema).length(3).parse(parseJsonObject(content).analyses)
+  const analyses = validateReplayAnalyses(parseJsonObject(content).analyses)
   const expectedIds = new Set(cases.map((candidate) => candidate.id))
   if (analyses.some((analysis) => !expectedIds.has(analysis.caseId))) throw new Error('案例解析 ID 不匹配')
   return analyses
@@ -219,25 +244,46 @@ function percent(value) {
   return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`
 }
 
-function fallbackAnalyses(unit, cases) {
+export function buildActualOutcome(candidate) {
+  return `未来24小时收盘净变化 ${percent(candidate.metrics.return24h)}，期间最低相对变化 ${percent(candidate.metrics.minInterimReturn)}，最高相对变化 ${percent(candidate.metrics.maxInterimReturn)}。`
+}
+
+export function inferCutoffJudgment(facts) {
+  if (facts.recentReturn >= 0.02 && facts.priorReturn >= -0.01 && facts.rangePosition >= 0.65) return 'up'
+  if (facts.recentReturn <= -0.02 && facts.priorReturn <= 0.01 && facts.rangePosition <= 0.35) return 'down'
+  return 'range'
+}
+
+export function fallbackAnalyses(unit, cases) {
   return cases.map((candidate) => {
     const facts = visibleFacts(candidate)
     const directionNames = { up: '上涨', down: '下跌', range: '震荡／方向不明' }
-    const standard = directionNames[candidate.correctDirection]
+    const cutoffJudgment = inferCutoffJudgment(facts)
+    const judgment = directionNames[cutoffJudgment]
+    const annotations = [...facts.last24Candles]
+      .sort((left, right) => right[5] - left[5])
+      .slice(0, 3)
+      .sort((left, right) => left[0] - right[0])
+      .map((candle, index) => ({
+        time: candle[0],
+        description: `${String.fromCharCode(65 + index)}柱是最近24小时的关键成交量K线`,
+      }))
     return {
       caseId: candidate.id,
+      cutoffJudgment,
+      annotations,
       evidence: [
         `先按“${unit.keyPoints[0]}”观察背景，不能只凭最后一根K线判断。`,
         `截止前24小时价格变化为 ${percent(facts.recentReturn)}，前一段24小时变化为 ${percent(facts.priorReturn)}。`,
         `最近24小时平均成交量是此前24小时的 ${facts.volumeRatio.toFixed(2)} 倍，需要结合价格进展判断努力与结果。`,
         `截止价位于过去120小时区间的 ${(facts.rangePosition * 100).toFixed(1)}% 位置。`,
+        annotations.map((annotation) => annotation.description).join('；') + '。',
       ],
       directionAnalysis: {
-        up: candidate.correctDirection === 'up' ? `标准答案为上涨。截止点前证据按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成需求占优的联合判断。` : `上涨不成立，因为截止点前的需求证据不足以支持标准答案${standard}以外的结论。`,
-        down: candidate.correctDirection === 'down' ? `标准答案为下跌。截止点前证据按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成供应占优的联合判断。` : `下跌不成立，因为截止点前的供应证据不足以支持标准答案${standard}以外的结论。`,
-        range: candidate.correctDirection === 'range' ? `标准答案为震荡／方向不明。供需证据没有形成可持续的单边优势，等待比强行预测更符合原书顺序。` : `震荡不成立，因为截止点前已经出现支持${standard}的方向性价格进展。`,
+        up: cutoffJudgment === 'up' ? `截止点判断偏多。可见行情按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成需求占优的联合证据；若价格跌回原区间则判断失效。` : `上涨证据不足，截止点前没有形成足以推翻“${judgment}”判断的持续需求进展。`,
+        down: cutoffJudgment === 'down' ? `截止点判断偏空。可见行情按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成供应占优的联合证据；若价格收复原区间则判断失效。` : `下跌证据不足，截止点前没有形成足以推翻“${judgment}”判断的持续供应进展。`,
+        range: cutoffJudgment === 'range' ? '截止点判断为等待／方向不明。供需证据没有形成可持续的单边优势，等待确认比强行预测更符合原书顺序。' : `震荡判断不成立，因为截止点前已经出现支持${judgment}的方向性价格进展。`,
       },
-      actualOutcome: `未来24小时收盘净变化 ${percent(candidate.metrics.return24h)}，期间最低相对变化 ${percent(candidate.metrics.minInterimReturn)}，最高相对变化 ${percent(candidate.metrics.maxInterimReturn)}。`,
     }
   })
 }
@@ -290,7 +336,7 @@ async function main() {
     let analyses
     if (process.env.WEIKEFU_REGENERATE !== '1') {
       try {
-        analyses = z.array(AnalysisSchema).length(3).parse(JSON.parse(await readFile(draftPath, 'utf8')))
+        analyses = validateReplayAnalyses(JSON.parse(await readFile(draftPath, 'utf8')))
       } catch {
         analyses = undefined
       }
@@ -311,9 +357,11 @@ async function main() {
         symbol: 'ETHUSDT',
         market: 'Binance USD-M Futures',
         timeframe: '1h',
+        cutoffJudgment: analysis.cutoffJudgment,
+        annotations: analysis.annotations,
         evidence: analysis.evidence,
         directionAnalysis: analysis.directionAnalysis,
-        actualOutcome: analysis.actualOutcome,
+        actualOutcome: buildActualOutcome(candidate),
         source: unit.source,
       })
     }

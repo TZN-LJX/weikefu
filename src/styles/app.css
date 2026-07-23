@@ -105,7 +105,9 @@
 .replay-question-header p:last-child { margin: 0; color: var(--muted); font-size: 12px; }
 .future-lock { display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: #7d5b18; background: #fff6df; padding: 7px 9px; border: 1px solid #ead59c; white-space: nowrap; }
 .chart-shell { position: relative; min-width: 0; background: #111a1f; border: 1px solid #2d3b42; }
+.market-chart-wrap { position: relative; min-width: 0; }
 .market-chart { width: 100%; min-height: 330px; }
+.market-chart-tooltip { position: absolute; z-index: 3; top: 8px; left: 8px; max-width: min(260px,calc(100% - 16px)); padding: 8px 10px; color: #e7edef; background: rgba(17,26,31,.94); border: 1px solid #4a5a62; font-size: 11px; line-height: 1.55; white-space: pre-line; pointer-events: none; }
 .chart-timeframes { position: relative; z-index: 2; width: max-content; margin: 8px 8px 0 auto; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #45545c; background: #1c282e; }
 .chart-timeframes button { min-height: 36px; padding: 6px 10px; border: 0; border-right: 1px solid #45545c; background: transparent; color: #aab6bb; font-size: 11px; cursor: pointer; }
 .chart-timeframes button:last-child { border-right: 0; }
@@ -121,6 +123,25 @@
 .evidence-summary h3, .actual-outcome h3 { margin: 0 0 8px; font-size: 14px; }
 .evidence-summary ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: #405057; }
 .actual-outcome p { margin: 0; line-height: 1.65; }
+.cutoff-judgment { padding: 10px 12px; border-left: 4px solid var(--green-2); background: #eef6f3; }
+.auxiliary-statistics, .replay-sop, .book-citation { display: grid; gap: 10px; padding: 15px 0; border-top: 1px solid var(--line); }
+.auxiliary-statistics h3, .replay-sop h3, .book-citation h3, .direction-analysis h3 { margin: 0; font-size: 14px; }
+.auxiliary-statistics > p { margin: 0; color: var(--muted); font-size: 12px; }
+.auxiliary-statistics dl { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.auxiliary-statistics dl > div { min-width: 0; padding: 10px 12px; border-right: 1px solid var(--line); }
+.auxiliary-statistics dl > div:last-child { border-right: 0; }
+.auxiliary-statistics dt { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.auxiliary-statistics dd { margin: 5px 0 0; color: var(--ink); font-size: 14px; font-weight: 800; }
+.replay-sop ol { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.replay-sop li { display: grid; grid-template-columns: minmax(130px,.28fr) 1fr; gap: 8px 16px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
+.replay-sop li > span { color: var(--muted); line-height: 1.55; }
+.replay-sop blockquote { grid-column: 2; margin: 0; padding-left: 10px; color: #405057; border-left: 3px solid var(--gold); font-size: 12px; line-height: 1.6; }
+.replay-sop cite { display: block; margin-top: 3px; color: var(--muted); font-style: normal; }
+.direction-analysis { gap: 0; }
+.direction-analysis h3 { padding: 0 4px 8px; border-bottom: 1px solid var(--line); }
+.book-citation { padding-inline: 14px; background: #fff9eb; border-left: 4px solid var(--gold); border-top-color: #ead59c; }
+.book-citation blockquote { margin: 0; color: #405057; line-height: 1.7; }
+.book-citation p { margin: 0; color: var(--muted); font-size: 12px; }
 
 .settings-header { display: flex; gap: 12px; align-items: center; }
 .settings-header > a { width: 42px; height: 42px; display: grid; place-items: center; color: var(--ink); border: 1px solid var(--line); background: #fff; }
@@ -182,6 +203,11 @@
   .direction-options { grid-template-columns: 1fr; }
   .direction-options button { border-right: 0; border-bottom: 1px solid var(--line); }
   .direction-options button:last-child { border-bottom: 0; }
+  .auxiliary-statistics dl { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .auxiliary-statistics dl > div:nth-child(2) { border-right: 0; }
+  .auxiliary-statistics dl > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  .replay-sop li { grid-template-columns: 1fr; }
+  .replay-sop blockquote { grid-column: 1; }
   .reinforcement-band { align-items: flex-start; flex-direction: column; }
   .settings-actions { grid-template-columns: 1fr; }
   .settings-section { margin-inline: -16px; padding: 18px 16px; }

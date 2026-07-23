@@ -27,7 +27,7 @@ function candle(time: number, close = 3_000) {
   return { time, open: close, high: close + 10, low: close - 10, close, volume: 100 }
 }
 
-function replayCase(index: number): MarketCase {
+function replayCase(index: number, correctDirection: MarketCase['correctDirection'] = 'up'): MarketCase {
   const start = 1_700_000_000 + index * 1_000_000
   return {
     id: `case-${index}`, unitId: 'unit-1', title: `ETH 回放 ${index}`, symbol: 'ETHUSDT', market: 'Binance USD-M Futures', timeframe: '1h',
@@ -35,7 +35,7 @@ function replayCase(index: number): MarketCase {
     visibleCandles: Array.from({ length: 48 }, (_, candleIndex) => candle(start + candleIndex * 3_600)),
     futureCandles: Array.from({ length: 24 }, (_, candleIndex) => candle(start + (48 + candleIndex) * 3_600, 3_000 + candleIndex * 4)),
     candles4h: Array.from({ length: 24 }, (_, candleIndex) => candle(start - (24 - candleIndex) * 14_400)),
-    correctDirection: 'up', evidence: ['需求扩大', '回测供应收缩'],
+    correctDirection, evidence: ['需求扩大', '回测供应收缩'],
     directionAnalysis: { up: '需求控制。', down: '供应没有扩大。', range: '已经出现方向。' },
     actualOutcome: '未来24小时上涨。', metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 },
     source: { pdfPath: 'assets/original.pdf', chapter: '第二章', pageStart: 80, pageEnd: 82 },
@@ -49,16 +49,26 @@ const unit: ContentUnit = {
   bookQuestions: Array.from({ length: 20 }, (_, index) => question(index + 1)),
 }
 
-function Harness({ initialProgress, wrongItems = [] }: { initialProgress: ChallengeProgress; wrongItems?: WrongItem[] }) {
+function Harness({
+  initialProgress,
+  wrongItems = [],
+  random = () => 0.9,
+  marketCases = [replayCase(1), replayCase(2), replayCase(3)],
+}: {
+  initialProgress: ChallengeProgress
+  wrongItems?: WrongItem[]
+  random?: () => number
+  marketCases?: MarketCase[]
+}) {
   const [progress, setProgress] = useState(initialProgress)
   const [items, setItems] = useState(wrongItems)
   return <ChallengeSessionPage
     unit={unit}
     allUnits={[unit]}
-    marketCases={[replayCase(1), replayCase(2), replayCase(3)]}
+    marketCases={marketCases}
     progress={progress}
     wrongItems={items}
-    random={() => 0.9}
+    random={random}
     now={() => new Date('2026-07-17T00:00:00.000Z')}
     onProgressChange={setProgress}
     onWrongItemChange={(item) => setItems((current) => [...current.filter((candidate) => candidate.questionId !== item.questionId), item])}
@@ -85,7 +95,20 @@ describe('ChallengeSessionPage', () => {
     expect(screen.getByRole('heading', { name: 'ETH 回放 1' })).toBeVisible()
     await user.click(screen.getByRole('radio', { name: '下跌' }))
     await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+    expect(screen.getByText(unit.excerpt)).toBeVisible()
     await user.click(screen.getByRole('button', { name: '换一个案例继续' }))
+    expect(screen.getByRole('heading', { name: 'ETH 回放 2' })).toBeVisible()
+  })
+
+  it('does not always start ETH replay with the stored up case', () => {
+    const progress = createChallengeProgress(['unit-1'])
+    progress.unitStates['unit-1'] = { step: 'market-replay' }
+    render(<Harness
+      initialProgress={progress}
+      random={() => 0}
+      marketCases={[replayCase(1, 'up'), replayCase(2, 'down'), replayCase(3, 'range')]}
+    />)
+
     expect(screen.getByRole('heading', { name: 'ETH 回放 2' })).toBeVisible()
   })
 })

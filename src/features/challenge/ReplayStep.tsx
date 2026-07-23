@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { BookOpenText, Check, CircleX, LockKeyhole } from 'lucide-react'
-import type { Direction, MarketCase, SourceReference } from '../pack/contentSchema'
+import type { ContentUnit, Direction, MarketCase, SourceReference } from '../pack/contentSchema'
 import { MarketChart } from '../replay/MarketChart'
+import { formatBeijingCrosshair } from '../replay/chartTime'
+import { buildReplayPresentation } from './replayPresentation'
 
 export type ReplayAnswer = {
   caseId: string
@@ -11,6 +13,7 @@ export type ReplayAnswer = {
 
 type ReplayStepProps = {
   marketCase: MarketCase
+  unit?: ContentUnit
   onAnswered: (answer: ReplayAnswer) => void
   onOpenSource: (source: SourceReference) => void
   onContinue: (correct: boolean) => void
@@ -22,32 +25,25 @@ const directionLabels: Record<Direction, string> = {
   range: '震荡／方向不明',
 }
 
-function formatBeijing(timestamp: number) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(new Date(timestamp * 1_000))
-}
-
 function sourceLabel(source: SourceReference) {
   const pages = source.pageEnd > source.pageStart ? `${source.pageStart}-${source.pageEnd}` : String(source.pageStart)
   return `${source.chapter} · 第 ${pages} 页`
 }
 
-export function ReplayStep({ marketCase, onAnswered, onOpenSource, onContinue }: ReplayStepProps) {
+export function ReplayStep({ marketCase, unit, onAnswered, onOpenSource, onContinue }: ReplayStepProps) {
   const [chartTimeframe, setChartTimeframe] = useState<'4h' | '1h'>('4h')
   const [selectedDirection, setSelectedDirection] = useState<Direction>()
   const [submitted, setSubmitted] = useState(false)
   const correct = selectedDirection === marketCase.correctDirection
   const oneHourCandles = submitted ? [...marketCase.visibleCandles, ...marketCase.futureCandles] : marketCase.visibleCandles
+  const presentation = buildReplayPresentation(marketCase, unit)
 
   return <section className="replay-question">
     <header className="replay-question-header">
       <div>
         <p className="eyebrow">{marketCase.market} · {marketCase.symbol}</p>
         <h2>{marketCase.title}</h2>
-        <p>北京时间截止 {formatBeijing(marketCase.cutoffTime)} · 判断至 {formatBeijing(marketCase.horizonEndTime)}</p>
+        <p>截止 {formatBeijingCrosshair(marketCase.cutoffTime)} · 判断至 {formatBeijingCrosshair(marketCase.horizonEndTime)}</p>
       </div>
       {!submitted && <span className="future-lock"><LockKeyhole size={16} />未来走势已隐藏</span>}
     </header>
@@ -57,7 +53,10 @@ export function ReplayStep({ marketCase, onAnswered, onOpenSource, onContinue }:
         <button type="button" className={chartTimeframe === '4h' ? 'active' : ''} onClick={() => setChartTimeframe('4h')}>4小时背景</button>
         <button type="button" className={chartTimeframe === '1h' ? 'active' : ''} onClick={() => setChartTimeframe('1h')}>1小时走势</button>
       </div>
-      <MarketChart candles={chartTimeframe === '4h' ? marketCase.candles4h : oneHourCandles} />
+      <MarketChart
+        candles={chartTimeframe === '4h' ? marketCase.candles4h : oneHourCandles}
+        annotations={submitted && chartTimeframe === '1h' ? presentation.annotations : []}
+      />
     </div>
 
     <div className="direction-question">
@@ -86,23 +85,49 @@ export function ReplayStep({ marketCase, onAnswered, onOpenSource, onContinue }:
         {correct ? <Check size={21} /> : <CircleX size={21} />}
         <strong>{correct ? '回答正确' : '回答错误'}</strong>
       </div>
-      <p className="standard-answer">标准答案：{directionLabels[marketCase.correctDirection]}</p>
+      <p className="standard-answer">实际结果标签：{presentation.resultLabel}</p>
+      <p className="cutoff-judgment">截止点前的合理判断：<strong>{presentation.judgmentLabel}</strong></p>
 
-      <section className="evidence-summary">
-        <h3>截点前的威科夫证据</h3>
-        <ul>{marketCase.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}</ul>
+      <section className="auxiliary-statistics">
+        <h3>辅助统计</h3>
+        <p>这些数值只描述背景位置，不能单独决定方向。</p>
+        <dl>{presentation.statistics.map((statistic) => <div key={statistic.label}>
+          <dt>{statistic.label}</dt>
+          <dd>{statistic.value}</dd>
+        </div>)}</dl>
       </section>
 
-      <div className="direction-analysis">
-        {(Object.keys(directionLabels) as Direction[]).map((direction) => <div key={direction} className={direction === marketCase.correctDirection ? 'is-correct' : ''}>
+      <section className="replay-sop">
+        <h3>复盘SOP</h3>
+        <ol>{presentation.sopSteps.map((step) => <li key={step.title}>
+          <strong>{step.title}</strong>
+          <span>{step.guidance}</span>
+          {step.quote && <blockquote>{step.quote}<cite>原书第{step.page}页</cite></blockquote>}
+        </li>)}</ol>
+      </section>
+
+      <section className="evidence-summary">
+        <h3>本题截止点前证据链</h3>
+        <ul>{presentation.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}</ul>
+      </section>
+
+      <section className="direction-analysis">
+        <h3>分别验证三个选项</h3>
+        {(Object.keys(directionLabels) as Direction[]).map((direction) => <div key={direction} className={direction === presentation.judgmentDirection ? 'is-correct' : ''}>
           <strong>{directionLabels[direction]}</strong>
-          <span>{marketCase.directionAnalysis[direction]}</span>
+          <span>{presentation.directionAnalysis[direction]}</span>
         </div>)}
-      </div>
+      </section>
+
+      {presentation.bookCitation && <section className="book-citation">
+        <h3>本单元原书依据</h3>
+        <blockquote>{presentation.bookCitation.quote}</blockquote>
+        <p>原书第{presentation.bookCitation.page}页</p>
+      </section>}
 
       <section className="actual-outcome">
         <h3>未来实际走势</h3>
-        <p>{marketCase.actualOutcome}</p>
+        <p>{presentation.actualOutcome}</p>
       </section>
 
       <div className="source-reference">

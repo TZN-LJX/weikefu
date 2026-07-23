@@ -12,6 +12,7 @@ import {
 import type { ChallengeAttemptRecord } from '../../db/database'
 import type { ContentUnit, MarketCase, SourceReference } from '../pack/contentSchema'
 import { BookQuizStep } from './BookQuizStep'
+import { shuffle } from './quizAttempt'
 import { ReplayStep } from './ReplayStep'
 import { ReviewStep, type ReviewEntry } from './ReviewStep'
 
@@ -34,6 +35,7 @@ type ChallengeSessionPageProps = {
 function resolveReviewEntries(items: WrongItem[], units: ContentUnit[], marketCases: MarketCase[]): ReviewEntry[] {
   const bookQuestions = new Map(units.flatMap((unit) => unit.bookQuestions).map((question) => [question.id, question]))
   const cases = new Map(marketCases.map((marketCase) => [marketCase.id, marketCase]))
+  const unitsById = new Map(units.map((unit) => [unit.id, unit]))
   const entries: ReviewEntry[] = []
   for (const item of items) {
     if (item.questionKind === 'book') {
@@ -41,7 +43,7 @@ function resolveReviewEntries(items: WrongItem[], units: ContentUnit[], marketCa
       if (question) entries.push({ item, kind: 'book', question })
     } else {
       const marketCase = cases.get(item.questionId)
-      if (marketCase) entries.push({ item, kind: 'market', marketCase })
+      if (marketCase) entries.push({ item, kind: 'market', marketCase, unit: unitsById.get(marketCase.unitId) })
     }
   }
   return entries
@@ -57,8 +59,15 @@ export function ChallengeSessionPage({
 }: ChallengeSessionPageProps) {
   const step = progress.unitStates[unit.id]?.step ?? 'locked'
   const [reviewEntries] = useState(() => resolveReviewEntries(selectReviewQuestions(wrongItems, now(), random), allUnits, marketCases))
-  const unitCases = includeAllMarketCases ? marketCases : marketCases.filter((marketCase) => marketCase.unitId === unit.id)
+  const [unitCases] = useState(() => shuffle(
+    includeAllMarketCases ? marketCases : marketCases.filter((marketCase) => marketCase.unitId === unit.id),
+    random,
+  ))
   const [caseIndex, setCaseIndex] = useState(0)
+  const activeMarketCase = unitCases[caseIndex]
+  const activeMarketUnit = activeMarketCase
+    ? allUnits.find((candidate) => candidate.id === activeMarketCase.unitId) ?? (unit.id === activeMarketCase.unitId ? unit : undefined)
+    : undefined
 
   const advance = useCallback((event: ProgressEvent) => {
     onProgressChange(advanceUnitProgress(progress, unit.id, event, now()))
@@ -89,6 +98,7 @@ export function ChallengeSessionPage({
     {step === 'review' && (reviewEntries.length ? <ReviewStep
       entries={reviewEntries}
       onOpenSource={onOpenSource}
+      random={random}
       onReviewAnswer={(item, correct) => onWrongItemChange(recordReviewAnswer(item, correct, now()))}
       onComplete={() => advance('review-completed')}
     /> : <p className="loading-inline">正在准备原书测验...</p>)}
@@ -106,12 +116,13 @@ export function ChallengeSessionPage({
       onPassed={() => advance('book-quiz-passed')}
     />}
 
-    {step === 'market-replay' && (unitCases[caseIndex] ? <ReplayStep
-      key={unitCases[caseIndex].id}
-      marketCase={unitCases[caseIndex]}
+    {step === 'market-replay' && (activeMarketCase ? <ReplayStep
+      key={activeMarketCase.id}
+      marketCase={activeMarketCase}
+      unit={activeMarketUnit}
       onOpenSource={onOpenSource}
       onAnswered={(answer) => {
-        const sourceUnitId = unitCases[caseIndex].unitId
+        const sourceUnitId = activeMarketCase.unitId
         onAttempt({
           questionId: answer.caseId, questionKind: 'market', unitId: sourceUnitId,
           selectedOptionId: answer.selectedDirection, correct: answer.correct, createdAt: now().toISOString(),

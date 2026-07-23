@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildReplayCandidate, classifyDirection, normalizeKlines, parseArchiveCsv, selectUnitCandidates } from './fetch-market-cases.mjs'
+import {
+  buildActualOutcome,
+  buildAnalysisSummaries,
+  buildReplayCandidate,
+  classifyDirection,
+  fallbackAnalyses,
+  normalizeKlines,
+  parseArchiveCsv,
+  selectUnitCandidates,
+  validateReplayAnalyses,
+} from './fetch-market-cases.mjs'
 
 function candle(time, close = 3_000) {
   return { time, open: close, high: close + 10, low: close - 10, close, volume: 100 }
@@ -39,4 +49,77 @@ test('selects one up, down, and range case per unit without reuse', () => {
   assert.deepEqual(selected.map((item) => item.correctDirection).sort(), ['down', 'range', 'up'])
   assert.equal(new Set(selected.map((item) => item.id)).size, 3)
   assert.equal(remaining.length, candidates.length - 3)
+})
+
+function analysis(caseId, evidence) {
+  return {
+    caseId,
+    cutoffJudgment: 'range',
+    evidence,
+    annotations: [{ time: 1_700_000_000, description: 'A柱放量突破' }],
+    directionAnalysis: { up: 'A柱后需求跟随。', down: '供应扩大证据不足。', range: '价格已经离开区间。' },
+  }
+}
+
+test('requires an independent cutoff-time judgment in generated analyses', () => {
+  const analyses = ['case-1', 'case-2', 'case-3'].map((caseId) => analysis(caseId, ['背景事实。', '价量事实。', '失效条件。']))
+  assert.equal(validateReplayAnalyses(analyses)[0].cutoffJudgment, 'range')
+  assert.throws(
+    () => validateReplayAnalyses(analyses.map(({ cutoffJudgment: _cutoffJudgment, ...item }) => item)),
+    /cutoffJudgment/,
+  )
+})
+
+test('keeps future outcome data out of the cutoff-time analysis input', () => {
+  const start = 1_700_000_000
+  const candidate = {
+    id: 'case-1',
+    cutoffTime: start + 120 * 3_600,
+    correctDirection: 'up',
+    metrics: { return24h: 0.08, minInterimReturn: -0.01, maxInterimReturn: 0.09 },
+    visibleCandles: Array.from({ length: 120 }, (_, index) => candle(start + index * 3_600, 3_000 + index)),
+  }
+
+  const summaries = buildAnalysisSummaries([candidate])
+
+  assert.equal(summaries[0].caseId, 'case-1')
+  assert.ok(summaries[0].visibleFacts)
+  assert.equal('correctDirection' in summaries[0], false)
+  assert.equal('metrics' in summaries[0], false)
+  assert.equal(buildActualOutcome(candidate), '未来24小时收盘净变化 +8.00%，期间最低相对变化 -1.00%，最高相对变化 +9.00%。')
+})
+
+test('builds fallback judgment and A/B/C explanations from visible candles only', () => {
+  const start = 1_700_000_000
+  const base = {
+    id: 'case-1',
+    cutoffTime: start + 120 * 3_600,
+    visibleCandles: Array.from({ length: 120 }, (_, index) => candle(start + index * 3_600, 3_000 + index * 2)),
+    metrics: { return24h: 0.08, minInterimReturn: -0.01, maxInterimReturn: 0.09 },
+    correctDirection: 'up',
+  }
+  const unit = { keyPoints: ['先看背景', '比较努力与结果'] }
+
+  const first = fallbackAnalyses(unit, [base])[0]
+  const changedFuture = fallbackAnalyses(unit, [{
+    ...base,
+    correctDirection: 'down',
+    metrics: { return24h: -0.08, minInterimReturn: -0.09, maxInterimReturn: 0.01 },
+  }])[0]
+
+  assert.equal(first.cutoffJudgment, changedFuture.cutoffJudgment)
+  assert.match(first.evidence.join(' '), /A柱.*B柱.*C柱/)
+})
+
+test('rejects learner-facing replay analysis with internal metrics or Unix timestamps', () => {
+  const valid = ['case-1', 'case-2', 'case-3'].map((caseId) => analysis(caseId, ['最近24小时上涨，A柱出现需求跟随。', '回调时供应收缩。', '努力带来价格进展。']))
+  assert.equal(validateReplayAnalyses(valid).length, 3)
+  assert.throws(
+    () => validateReplayAnalyses(valid.map((item, index) => index === 0 ? { ...item, evidence: ['recentReturn为0.03', ...item.evidence.slice(1)] } : item)),
+    /学习者文本不能包含内部指标名或Unix时间戳/,
+  )
+  assert.throws(
+    () => validateReplayAnalyses(valid.map((item, index) => index === 0 ? { ...item, evidence: ['1678640400出现突破', ...item.evidence.slice(1)] } : item)),
+    /学习者文本不能包含内部指标名或Unix时间戳/,
+  )
 })

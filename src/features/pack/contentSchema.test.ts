@@ -84,6 +84,22 @@ describe('challenge content schemas', () => {
     expect(result.stages[0].units[0].bookQuestions[0].options[0].explanation).toBeTruthy()
   })
 
+  it('preserves exact excerpt pages and structured replay annotations', () => {
+    const { course, marketCases } = validContent()
+    Object.assign(course.stages[0].units[0], { excerptPage: 19 })
+    Object.assign(marketCases.cases[0], {
+      cutoffJudgment: 'range',
+      annotations: [{ time: marketCases.cases[0].visibleCandles[10].time, description: '放量突破' }],
+    })
+
+    const result = validateChallengeContent(course, marketCases)
+    expect(result.course.stages[0].units[0].excerptPage).toBe(19)
+    expect(result.marketCases.cases[0].annotations).toEqual([
+      { time: marketCases.cases[0].visibleCandles[10].time, description: '放量突破' },
+    ])
+    expect(result.marketCases.cases[0].cutoffJudgment).toBe('range')
+  })
+
   it('rejects a book question whose correct option is missing', () => {
     const { course } = validContent()
     course.stages[0].units[0].bookQuestions[0].correctOptionId = 'missing'
