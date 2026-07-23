@@ -21,14 +21,34 @@ export type WrongAttempt = {
   now: Date
 }
 
-export type ChallengeStep = 'locked' | 'review' | 'book-quiz' | 'market-replay' | 'completed'
+export type ChallengeStep = 'locked' | 'review' | 'book-quiz' | 'market-replay' | 'case-training' | 'completed'
 export type ProgressEvent = 'review-completed' | 'book-quiz-passed' | 'market-replay-passed'
+
+export type CaseTrainingSymbol = 'ETHUSDT' | 'BTCUSDT'
+
+export type CaseTrainingProgress = {
+  caseOrder: string[]
+  nextIndex: number
+  correctCount: number
+  wrongCount: number
+  completedBySymbol: Record<CaseTrainingSymbol, number>
+}
+
+export type UnitProgressState = {
+  step: ChallengeStep
+  training?: CaseTrainingProgress
+}
+
+export type ChallengeUnitDescriptor = {
+  id: string
+  mode?: 'standard' | 'case-training'
+}
 
 export type ChallengeProgress = {
   id: 'main'
   unitOrder: string[]
   unlockedUnitIndex: number
-  unitStates: Record<string, { step: ChallengeStep }>
+  unitStates: Record<string, UnitProgressState>
   mode: 'course' | 'reinforcement'
   updatedAt: string
 }
@@ -110,19 +130,35 @@ export function scoreBookQuiz(answers: boolean[]) {
   return { correct, total: answers.length, passed: answers.length === 10 && correct >= 8 }
 }
 
-export function createChallengeProgress(unitOrder: string[], now = new Date()): ChallengeProgress {
-  if (!unitOrder.length) throw new Error('闯关至少需要一个知识单元')
+function normalizeUnits(units: readonly (string | ChallengeUnitDescriptor)[]) {
+  return units.map((unit) => typeof unit === 'string' ? { id: unit, mode: 'standard' as const } : { ...unit, mode: unit.mode ?? 'standard' })
+}
+
+function unitEntryStep(unit: ChallengeUnitDescriptor | undefined): ChallengeStep {
+  return unit?.mode === 'case-training' ? 'case-training' : 'review'
+}
+
+export function createChallengeProgress(units: readonly (string | ChallengeUnitDescriptor)[], now = new Date()): ChallengeProgress {
+  if (!units.length) throw new Error('闯关至少需要一个知识单元')
+  const descriptors = normalizeUnits(units)
+  const unitOrder = descriptors.map((unit) => unit.id)
   return {
     id: 'main',
     unitOrder,
     unlockedUnitIndex: 0,
-    unitStates: Object.fromEntries(unitOrder.map((unitId, index) => [unitId, { step: index === 0 ? 'review' : 'locked' }])),
+    unitStates: Object.fromEntries(descriptors.map((unit, index) => [unit.id, { step: index === 0 ? unitEntryStep(unit) : 'locked' }])),
     mode: 'course',
     updatedAt: now.toISOString(),
   }
 }
 
-export function advanceUnitProgress(progress: ChallengeProgress, unitId: string, event: ProgressEvent, now = new Date()): ChallengeProgress {
+export function advanceUnitProgress(
+  progress: ChallengeProgress,
+  unitId: string,
+  event: ProgressEvent,
+  now = new Date(),
+  units?: readonly ChallengeUnitDescriptor[],
+): ChallengeProgress {
   const current = progress.unitStates[unitId]
   if (!current) throw new Error('知识单元不存在')
   const expectedStep: Record<ProgressEvent, ChallengeStep> = {
@@ -148,9 +184,174 @@ export function advanceUnitProgress(progress: ChallengeProgress, unitId: string,
       mode = 'reinforcement'
     } else if (completedIndex === progress.unlockedUnitIndex) {
       unlockedUnitIndex = completedIndex + 1
-      unitStates[progress.unitOrder[unlockedUnitIndex]] = { step: 'review' }
+      const nextUnitId = progress.unitOrder[unlockedUnitIndex]
+      unitStates[nextUnitId] = { step: unitEntryStep(units?.find((unit) => unit.id === nextUnitId)) }
     }
   }
 
   return { ...progress, unitStates, unlockedUnitIndex, mode, updatedAt: now.toISOString() }
+}
+
+function hasValidCurrentShape(progress: ChallengeProgress, unitIds: string[]) {
+  return progress.unitOrder.length === unitIds.length
+    && progress.unitOrder.every((unitId, index) => unitId === unitIds[index])
+    && unitIds.every((unitId) => Boolean(progress.unitStates[unitId]))
+    && Number.isInteger(progress.unlockedUnitIndex)
+    && progress.unlockedUnitIndex >= 0
+    && progress.unlockedUnitIndex < unitIds.length
+}
+
+export function migrateChallengeProgress(
+  saved: ChallengeProgress | undefined,
+  units: readonly ChallengeUnitDescriptor[],
+  now = new Date(),
+): ChallengeProgress {
+  const descriptors = normalizeUnits(units)
+  const unitIds = descriptors.map((unit) => unit.id)
+  if (!saved) return createChallengeProgress(descriptors, now)
+  if (hasValidCurrentShape(saved, unitIds)) return saved
+
+  const addsOneUnit = saved.unitOrder.length + 1 === unitIds.length
+    && saved.unitOrder.every((unitId, index) => unitId === unitIds[index])
+  if (!addsOneUnit) return createChallengeProgress(descriptors, now)
+
+  const nextUnit = descriptors.at(-1)!
+  const legacyComplete = saved.mode === 'reinforcement'
+    || saved.unitOrder.every((unitId) => saved.unitStates[unitId]?.step === 'completed')
+  return {
+    ...saved,
+    unitOrder: unitIds,
+    unlockedUnitIndex: legacyComplete ? unitIds.length - 1 : saved.unlockedUnitIndex,
+    unitStates: {
+      ...saved.unitStates,
+      [nextUnit.id]: { step: legacyComplete ? unitEntryStep(nextUnit) : 'locked' },
+    },
+    mode: legacyComplete ? 'course' : saved.mode,
+    updatedAt: now.toISOString(),
+  }
+}
+
+type TrainingCaseDescriptor = {
+  id: string
+  symbol: CaseTrainingSymbol
+}
+
+function shuffle<T>(values: readonly T[], random: () => number) {
+  const shuffled = [...values]
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomValue = random()
+    const bounded = Number.isFinite(randomValue) ? Math.max(0, Math.min(randomValue, 0.9999999999999999)) : 0
+    const swapIndex = Math.floor(bounded * (index + 1))
+    ;[shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]]
+  }
+  return shuffled
+}
+
+function isTrainingSymbol(value: unknown): value is CaseTrainingSymbol {
+  return value === 'ETHUSDT' || value === 'BTCUSDT'
+}
+
+export function ensureCaseTrainingProgress(
+  progress: ChallengeProgress,
+  unitId: string,
+  cases: readonly TrainingCaseDescriptor[],
+  random: () => number = Math.random,
+  now = new Date(),
+): ChallengeProgress {
+  const current = progress.unitStates[unitId]
+  if (!current) throw new Error('知识单元不存在')
+  if (current.step !== 'case-training' && current.step !== 'completed') throw new Error('真实案例集训尚未解锁')
+  if (!cases.length) throw new Error('真实案例集训至少需要一个案例')
+
+  const caseById = new Map<string, TrainingCaseDescriptor>()
+  for (const marketCase of cases) {
+    if (!marketCase.id || caseById.has(marketCase.id) || !isTrainingSymbol(marketCase.symbol)) {
+      throw new Error('真实案例列表无效')
+    }
+    caseById.set(marketCase.id, marketCase)
+  }
+
+  const previous = current.training
+  const previousOrder = previous?.caseOrder ?? []
+  const previousNextIndex = previous && Number.isInteger(previous.nextIndex)
+    ? Math.max(0, Math.min(previous.nextIndex, previousOrder.length))
+    : 0
+  const seen = new Set<string>()
+  const completedPrefix: string[] = []
+  for (const caseId of previousOrder.slice(0, previousNextIndex)) {
+    if (caseById.has(caseId) && !seen.has(caseId)) {
+      seen.add(caseId)
+      completedPrefix.push(caseId)
+    }
+  }
+  const remainingExisting: string[] = []
+  for (const caseId of previousOrder.slice(previousNextIndex)) {
+    if (caseById.has(caseId) && !seen.has(caseId)) {
+      seen.add(caseId)
+      remainingExisting.push(caseId)
+    }
+  }
+  const unseen = cases.map((marketCase) => marketCase.id).filter((caseId) => !seen.has(caseId))
+  const caseOrder = [...completedPrefix, ...remainingExisting, ...shuffle(unseen, random)]
+  const nextIndex = completedPrefix.length
+  const previousCountsCoherent = previous
+    && Number.isInteger(previous.correctCount)
+    && Number.isInteger(previous.wrongCount)
+    && previous.correctCount >= 0
+    && previous.wrongCount >= 0
+    && previous.correctCount + previous.wrongCount === previousNextIndex
+    && previousNextIndex === nextIndex
+  const correctCount = previousCountsCoherent ? previous.correctCount : Math.min(nextIndex, Math.max(0, previous?.correctCount ?? 0))
+  const wrongCount = nextIndex - correctCount
+  const completedBySymbol = { ETHUSDT: 0, BTCUSDT: 0 }
+  for (const caseId of completedPrefix) completedBySymbol[caseById.get(caseId)!.symbol] += 1
+
+  return {
+    ...progress,
+    unitStates: {
+      ...progress.unitStates,
+      [unitId]: {
+        ...current,
+        training: { caseOrder, nextIndex, correctCount, wrongCount, completedBySymbol },
+      },
+    },
+    updatedAt: now.toISOString(),
+  }
+}
+
+export function advanceCaseTraining(
+  progress: ChallengeProgress,
+  unitId: string,
+  answer: { caseId: string; symbol: CaseTrainingSymbol; correct: boolean },
+  now = new Date(),
+): ChallengeProgress {
+  const current = progress.unitStates[unitId]
+  const training = current?.training
+  if (!current || current.step !== 'case-training' || !training) throw new Error('真实案例集训进度无效')
+  if (training.caseOrder[training.nextIndex] !== answer.caseId) throw new Error('真实案例顺序无效')
+  if (!isTrainingSymbol(answer.symbol) || typeof answer.correct !== 'boolean') throw new Error('真实案例答案无效')
+
+  const nextIndex = training.nextIndex + 1
+  const completed = nextIndex === training.caseOrder.length
+  return {
+    ...progress,
+    unitStates: {
+      ...progress.unitStates,
+      [unitId]: {
+        step: completed ? 'completed' : 'case-training',
+        training: {
+          ...training,
+          nextIndex,
+          correctCount: training.correctCount + (answer.correct ? 1 : 0),
+          wrongCount: training.wrongCount + (answer.correct ? 0 : 1),
+          completedBySymbol: {
+            ...training.completedBySymbol,
+            [answer.symbol]: training.completedBySymbol[answer.symbol] + 1,
+          },
+        },
+      },
+    },
+    mode: completed ? 'reinforcement' : progress.mode,
+    updatedAt: now.toISOString(),
+  }
 }

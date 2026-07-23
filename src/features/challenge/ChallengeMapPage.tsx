@@ -15,6 +15,7 @@ const stepLabels: Record<ChallengeStep, string> = {
   review: '错题回顾',
   'book-quiz': '原书测验',
   'market-replay': 'ETH历史回放',
+  'case-training': '真实案例集训',
   completed: '已完成',
 }
 
