@@ -70,8 +70,8 @@ export function ChallengeSessionPage({
     : undefined
 
   const advance = useCallback((event: ProgressEvent) => {
-    onProgressChange(advanceUnitProgress(progress, unit.id, event, now()))
-  }, [now, onProgressChange, progress, unit.id])
+    onProgressChange(advanceUnitProgress(progress, unit.id, event, now(), allUnits))
+  }, [allUnits, now, onProgressChange, progress, unit.id])
 
   useEffect(() => {
     if (step === 'review' && reviewEntries.length === 0) advance('review-completed')

@@ -38,6 +38,7 @@ type ValidTrainingProgress = {
   correctCount: number
   wrongCount: number
   completedBySymbol: { ETHUSDT: number; BTCUSDT: number }
+  outcomes: Record<string, { correct: boolean; symbol: 'ETHUSDT' | 'BTCUSDT' }>
 }
 
 function isValidTrainingProgress(value: unknown): value is ValidTrainingProgress {
@@ -51,16 +52,41 @@ function isValidTrainingProgress(value: unknown): value is ValidTrainingProgress
     || !isNonNegativeInteger(value.correctCount)
     || !isNonNegativeInteger(value.wrongCount)
     || value.correctCount + value.wrongCount !== value.nextIndex
-    || !isRecord(value.completedBySymbol)) {
+    || !isRecord(value.completedBySymbol)
+    || !isRecord(value.outcomes)) {
     return false
   }
   const symbolKeys = Object.keys(value.completedBySymbol)
-  return symbolKeys.length === 2
+  if (!(symbolKeys.length === 2
     && symbolKeys.includes('ETHUSDT')
     && symbolKeys.includes('BTCUSDT')
     && isNonNegativeInteger(value.completedBySymbol.ETHUSDT)
     && isNonNegativeInteger(value.completedBySymbol.BTCUSDT)
-    && value.completedBySymbol.ETHUSDT + value.completedBySymbol.BTCUSDT === value.nextIndex
+    && value.completedBySymbol.ETHUSDT + value.completedBySymbol.BTCUSDT === value.nextIndex)) {
+    return false
+  }
+
+  const completedIds = value.caseOrder.slice(0, value.nextIndex)
+  const outcomeKeys = Object.keys(value.outcomes)
+  if (outcomeKeys.length !== completedIds.length || outcomeKeys.some((caseId) => !completedIds.includes(caseId))) return false
+
+  let correctCount = 0
+  const completedBySymbol = { ETHUSDT: 0, BTCUSDT: 0 }
+  for (const caseId of completedIds) {
+    const outcome = value.outcomes[caseId]
+    if (!isRecord(outcome)
+      || Object.keys(outcome).some((key) => key !== 'correct' && key !== 'symbol')
+      || typeof outcome.correct !== 'boolean'
+      || (outcome.symbol !== 'ETHUSDT' && outcome.symbol !== 'BTCUSDT')) {
+      return false
+    }
+    if (outcome.correct) correctCount += 1
+    completedBySymbol[outcome.symbol] += 1
+  }
+  return correctCount === value.correctCount
+    && completedIds.length - correctCount === value.wrongCount
+    && completedBySymbol.ETHUSDT === value.completedBySymbol.ETHUSDT
+    && completedBySymbol.BTCUSDT === value.completedBySymbol.BTCUSDT
 }
 
 function isValidChallengeProgress(value: unknown) {
@@ -83,7 +109,7 @@ function isValidChallengeProgress(value: unknown) {
   return value.unitOrder.every((unitId) => {
     const state = unitStates[unitId]
     if (!isRecord(state) || !validSteps.has(state.step as string)) return false
-    if (state.training === undefined) return state.step !== 'case-training'
+    if (state.training === undefined) return true
     const training = state.training
     if ((state.step !== 'case-training' && state.step !== 'completed') || !isValidTrainingProgress(training)) return false
     const orderLength = training.caseOrder.length

@@ -26,12 +26,18 @@ export type ProgressEvent = 'review-completed' | 'book-quiz-passed' | 'market-re
 
 export type CaseTrainingSymbol = 'ETHUSDT' | 'BTCUSDT'
 
+export type CaseTrainingOutcome = {
+  correct: boolean
+  symbol: CaseTrainingSymbol
+}
+
 export type CaseTrainingProgress = {
   caseOrder: string[]
   nextIndex: number
   correctCount: number
   wrongCount: number
   completedBySymbol: Record<CaseTrainingSymbol, number>
+  outcomes: Record<string, CaseTrainingOutcome>
 }
 
 export type UnitProgressState = {
@@ -183,9 +189,11 @@ export function advanceUnitProgress(
     if (completedIndex === progress.unitOrder.length - 1) {
       mode = 'reinforcement'
     } else if (completedIndex === progress.unlockedUnitIndex) {
+      const nextUnitId = progress.unitOrder[completedIndex + 1]
+      const nextUnit = units?.find((unit) => unit.id === nextUnitId)
+      if (!nextUnit) throw new Error('缺少下一知识单元描述')
       unlockedUnitIndex = completedIndex + 1
-      const nextUnitId = progress.unitOrder[unlockedUnitIndex]
-      unitStates[nextUnitId] = { step: unitEntryStep(units?.find((unit) => unit.id === nextUnitId)) }
+      unitStates[nextUnitId] = { step: unitEntryStep(nextUnit) }
     }
   }
 
@@ -251,6 +259,17 @@ function isTrainingSymbol(value: unknown): value is CaseTrainingSymbol {
   return value === 'ETHUSDT' || value === 'BTCUSDT'
 }
 
+function indexTrainingCases(cases: readonly TrainingCaseDescriptor[]) {
+  const caseById = new Map<string, TrainingCaseDescriptor>()
+  for (const marketCase of cases) {
+    if (!marketCase.id || caseById.has(marketCase.id) || !isTrainingSymbol(marketCase.symbol)) {
+      throw new Error('真实案例列表无效')
+    }
+    caseById.set(marketCase.id, marketCase)
+  }
+  return caseById
+}
+
 export function ensureCaseTrainingProgress(
   progress: ChallengeProgress,
   unitId: string,
@@ -263,13 +282,7 @@ export function ensureCaseTrainingProgress(
   if (current.step !== 'case-training' && current.step !== 'completed') throw new Error('真实案例集训尚未解锁')
   if (!cases.length) throw new Error('真实案例集训至少需要一个案例')
 
-  const caseById = new Map<string, TrainingCaseDescriptor>()
-  for (const marketCase of cases) {
-    if (!marketCase.id || caseById.has(marketCase.id) || !isTrainingSymbol(marketCase.symbol)) {
-      throw new Error('真实案例列表无效')
-    }
-    caseById.set(marketCase.id, marketCase)
-  }
+  const caseById = indexTrainingCases(cases)
 
   const previous = current.training
   const previousOrder = previous?.caseOrder ?? []
@@ -278,10 +291,16 @@ export function ensureCaseTrainingProgress(
     : 0
   const seen = new Set<string>()
   const completedPrefix: string[] = []
+  const outcomes: Record<string, CaseTrainingOutcome> = {}
   for (const caseId of previousOrder.slice(0, previousNextIndex)) {
-    if (caseById.has(caseId) && !seen.has(caseId)) {
+    const marketCase = caseById.get(caseId)
+    const outcome = previous?.outcomes?.[caseId]
+    if (marketCase && !seen.has(caseId)
+      && outcome && typeof outcome.correct === 'boolean'
+      && isTrainingSymbol(outcome.symbol) && outcome.symbol === marketCase.symbol) {
       seen.add(caseId)
       completedPrefix.push(caseId)
+      outcomes[caseId] = { correct: outcome.correct, symbol: marketCase.symbol }
     }
   }
   const remainingExisting: string[] = []
@@ -294,17 +313,10 @@ export function ensureCaseTrainingProgress(
   const unseen = cases.map((marketCase) => marketCase.id).filter((caseId) => !seen.has(caseId))
   const caseOrder = [...completedPrefix, ...remainingExisting, ...shuffle(unseen, random)]
   const nextIndex = completedPrefix.length
-  const previousCountsCoherent = previous
-    && Number.isInteger(previous.correctCount)
-    && Number.isInteger(previous.wrongCount)
-    && previous.correctCount >= 0
-    && previous.wrongCount >= 0
-    && previous.correctCount + previous.wrongCount === previousNextIndex
-    && previousNextIndex === nextIndex
-  const correctCount = previousCountsCoherent ? previous.correctCount : Math.min(nextIndex, Math.max(0, previous?.correctCount ?? 0))
+  const correctCount = Object.values(outcomes).filter((outcome) => outcome.correct).length
   const wrongCount = nextIndex - correctCount
   const completedBySymbol = { ETHUSDT: 0, BTCUSDT: 0 }
-  for (const caseId of completedPrefix) completedBySymbol[caseById.get(caseId)!.symbol] += 1
+  for (const outcome of Object.values(outcomes)) completedBySymbol[outcome.symbol] += 1
   const unitIndex = progress.unitOrder.indexOf(unitId)
   if (unitIndex < 0) throw new Error('知识单元不存在')
   const reopened = current.step === 'completed' && nextIndex < caseOrder.length
@@ -317,7 +329,7 @@ export function ensureCaseTrainingProgress(
       [unitId]: {
         ...current,
         step: reopened ? 'case-training' : current.step,
-        training: { caseOrder, nextIndex, correctCount, wrongCount, completedBySymbol },
+        training: { caseOrder, nextIndex, correctCount, wrongCount, completedBySymbol, outcomes },
       },
     },
     mode: reopened ? 'course' : progress.mode,
@@ -328,14 +340,17 @@ export function ensureCaseTrainingProgress(
 export function advanceCaseTraining(
   progress: ChallengeProgress,
   unitId: string,
-  answer: { caseId: string; symbol: CaseTrainingSymbol; correct: boolean },
+  answer: { caseId: string; correct: boolean },
+  cases: readonly TrainingCaseDescriptor[],
   now = new Date(),
 ): ChallengeProgress {
   const current = progress.unitStates[unitId]
   const training = current?.training
   if (!current || current.step !== 'case-training' || !training) throw new Error('真实案例集训进度无效')
   if (training.caseOrder[training.nextIndex] !== answer.caseId) throw new Error('真实案例顺序无效')
-  if (!isTrainingSymbol(answer.symbol) || typeof answer.correct !== 'boolean') throw new Error('真实案例答案无效')
+  if (typeof answer.correct !== 'boolean') throw new Error('真实案例答案无效')
+  const marketCase = indexTrainingCases(cases).get(answer.caseId)
+  if (!marketCase) throw new Error('真实案例目录与进度不匹配')
 
   const nextIndex = training.nextIndex + 1
   const completed = nextIndex === training.caseOrder.length
@@ -352,7 +367,11 @@ export function advanceCaseTraining(
           wrongCount: training.wrongCount + (answer.correct ? 0 : 1),
           completedBySymbol: {
             ...training.completedBySymbol,
-            [answer.symbol]: training.completedBySymbol[answer.symbol] + 1,
+            [marketCase.symbol]: training.completedBySymbol[marketCase.symbol] + 1,
+          },
+          outcomes: {
+            ...training.outcomes,
+            [answer.caseId]: { correct: answer.correct, symbol: marketCase.symbol },
           },
         },
       },

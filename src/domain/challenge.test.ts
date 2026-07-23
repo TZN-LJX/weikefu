@@ -93,6 +93,10 @@ describe('challenge progression', () => {
   })
 
   it('advances the three steps and unlocks the next unit', () => {
+    const units: ChallengeUnitDescriptor[] = [
+      { id: 'unit-1', mode: 'standard' },
+      { id: 'unit-2', mode: 'standard' },
+    ]
     let progress = createChallengeProgress(['unit-1', 'unit-2'])
     progress = advanceUnitProgress(progress, 'unit-1', 'review-completed', now)
     expect(progress.unitStates['unit-1'].step).toBe('book-quiz')
@@ -100,7 +104,7 @@ describe('challenge progression', () => {
     progress = advanceUnitProgress(progress, 'unit-1', 'book-quiz-passed', now)
     expect(progress.unitStates['unit-1'].step).toBe('market-replay')
 
-    progress = advanceUnitProgress(progress, 'unit-1', 'market-replay-passed', now)
+    progress = advanceUnitProgress(progress, 'unit-1', 'market-replay-passed', now, units)
     expect(progress.unitStates['unit-1'].step).toBe('completed')
     expect(progress.unitStates['unit-2'].step).toBe('review')
     expect(progress.unlockedUnitIndex).toBe(1)
@@ -131,6 +135,14 @@ describe('challenge progression', () => {
     expect(progress.unlockedUnitIndex).toBe(1)
     expect(progress.unitStates.training.step).toBe('case-training')
     expect(progress.mode).toBe('course')
+  })
+
+  it('refuses to unlock a next unit without its descriptor', () => {
+    let progress = createChallengeProgress(['unit-1', 'unit-2'], now)
+    progress = advanceUnitProgress(progress, 'unit-1', 'review-completed', now)
+    progress = advanceUnitProgress(progress, 'unit-1', 'book-quiz-passed', now)
+
+    expect(() => advanceUnitProgress(progress, 'unit-1', 'market-replay-passed', now)).toThrow()
   })
 })
 
@@ -190,6 +202,7 @@ describe('challenge progress migration', () => {
         correctCount: 1,
         wrongCount: 0,
         completedBySymbol: { ETHUSDT: 1, BTCUSDT: 0 },
+        outcomes: { 'case-1': { correct: true, symbol: 'ETHUSDT' } },
       },
     }
 
@@ -213,6 +226,7 @@ describe('case training progress', () => {
       correctCount: 0,
       wrongCount: 0,
       completedBySymbol: { ETHUSDT: 0, BTCUSDT: 0 },
+      outcomes: {},
     })
     expect(ensuredAgain.unitStates.training.training!.caseOrder).toEqual(training.caseOrder)
     expect(random).toHaveBeenCalledTimes(99)
@@ -232,6 +246,11 @@ describe('case training progress', () => {
             correctCount: 2,
             wrongCount: 1,
             completedBySymbol: { ETHUSDT: 2, BTCUSDT: 1 },
+            outcomes: {
+              a: { correct: true, symbol: 'ETHUSDT' },
+              removed: { correct: false, symbol: 'ETHUSDT' },
+              b: { correct: true, symbol: 'BTCUSDT' },
+            },
           },
         },
       },
@@ -253,6 +272,54 @@ describe('case training progress', () => {
       correctCount: 2,
       wrongCount: 0,
       completedBySymbol: { ETHUSDT: 1, BTCUSDT: 1 },
+      outcomes: {
+        a: { correct: true, symbol: 'ETHUSDT' },
+        b: { correct: true, symbol: 'BTCUSDT' },
+      },
+    })
+  })
+
+  it('recomputes repaired counts exactly from retained per-case outcomes', () => {
+    const progress: ChallengeProgress = {
+      id: 'main',
+      unitOrder: ['training'],
+      unlockedUnitIndex: 0,
+      unitStates: {
+        training: {
+          step: 'case-training',
+          training: {
+            caseOrder: ['a', 'removed', 'b', 'c'],
+            nextIndex: 3,
+            correctCount: 2,
+            wrongCount: 1,
+            completedBySymbol: { ETHUSDT: 2, BTCUSDT: 1 },
+            outcomes: {
+              a: { correct: false, symbol: 'ETHUSDT' },
+              removed: { correct: true, symbol: 'ETHUSDT' },
+              b: { correct: true, symbol: 'BTCUSDT' },
+            },
+          },
+        },
+      },
+      mode: 'course',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+    }
+    const repaired = ensureCaseTrainingProgress(progress, 'training', [
+      { id: 'a', symbol: 'ETHUSDT' },
+      { id: 'b', symbol: 'BTCUSDT' },
+      { id: 'c', symbol: 'BTCUSDT' },
+      { id: 'd', symbol: 'ETHUSDT' },
+    ], () => 0, now)
+
+    expect(repaired.unitStates.training.training).toMatchObject({
+      nextIndex: 2,
+      correctCount: 1,
+      wrongCount: 1,
+      completedBySymbol: { ETHUSDT: 1, BTCUSDT: 1 },
+      outcomes: {
+        a: { correct: false, symbol: 'ETHUSDT' },
+        b: { correct: true, symbol: 'BTCUSDT' },
+      },
     })
   })
 
@@ -271,6 +338,10 @@ describe('case training progress', () => {
             correctCount: 2,
             wrongCount: 0,
             completedBySymbol: { ETHUSDT: 1, BTCUSDT: 1 },
+            outcomes: {
+              a: { correct: true, symbol: 'ETHUSDT' },
+              b: { correct: true, symbol: 'BTCUSDT' },
+            },
           },
         },
       },
@@ -291,6 +362,7 @@ describe('case training progress', () => {
         correctCount: 1,
         wrongCount: 0,
         completedBySymbol: { ETHUSDT: 1, BTCUSDT: 0 },
+        outcomes: { a: { correct: true, symbol: 'ETHUSDT' } },
       },
     })
     expect(repaired.unlockedUnitIndex).toBe(1)
@@ -299,7 +371,11 @@ describe('case training progress', () => {
     const backup = createBackup({ challengeProgress: [repaired], challengeAttempts: [], wrongItems: [], settings: {} })
     expect(() => validateBackup(backup)).not.toThrow()
 
-    const completed = advanceCaseTraining(repaired, 'training', { caseId: 'c', symbol: 'BTCUSDT', correct: false }, now)
+    const repairedCases = [
+      { id: 'a', symbol: 'ETHUSDT' as const },
+      { id: 'c', symbol: 'BTCUSDT' as const },
+    ]
+    const completed = advanceCaseTraining(repaired, 'training', { caseId: 'c', correct: false }, repairedCases, now)
     expect(completed.unitStates.training).toMatchObject({
       step: 'completed',
       training: {
@@ -319,32 +395,53 @@ describe('case training progress', () => {
     expect(preserved.mode).toBe('reinforcement')
   })
 
-  it('advances wrong answers and rejects an inactive case or unsupported symbol', () => {
+  it('advances wrong answers and rejects an inactive case or invalid catalog', () => {
+    const cases = [{ id: 'case-1', symbol: 'BTCUSDT' as const }]
     const initialized = ensureCaseTrainingProgress(
       createChallengeProgress([{ id: 'training', mode: 'case-training' }], now),
       'training',
-      [{ id: 'case-1', symbol: 'BTCUSDT' }],
+      cases,
       () => 0,
       now,
     )
 
-    expect(() => advanceCaseTraining(initialized, 'training', { caseId: 'other', symbol: 'BTCUSDT', correct: false }, now)).toThrow()
-    expect(() => advanceCaseTraining(initialized, 'training', { caseId: 'case-1', symbol: 'SOLUSDT' as 'BTCUSDT', correct: false }, now)).toThrow()
+    expect(() => advanceCaseTraining(initialized, 'training', { caseId: 'other', correct: false }, cases, now)).toThrow()
+    expect(() => advanceCaseTraining(initialized, 'training', { caseId: 'case-1', correct: false }, [{ id: 'case-1', symbol: 'SOLUSDT' as 'BTCUSDT' }], now)).toThrow()
 
-    const advanced = advanceCaseTraining(initialized, 'training', { caseId: 'case-1', symbol: 'BTCUSDT', correct: false }, now)
+    const advanced = advanceCaseTraining(initialized, 'training', { caseId: 'case-1', correct: false }, cases, now)
     expect(advanced.unitStates.training.training).toMatchObject({
       nextIndex: 1,
       correctCount: 0,
       wrongCount: 1,
       completedBySymbol: { ETHUSDT: 0, BTCUSDT: 1 },
+      outcomes: { 'case-1': { correct: false, symbol: 'BTCUSDT' } },
     })
     expect(advanced.unitStates.training.step).toBe('completed')
     expect(advanced.mode).toBe('reinforcement')
   })
 
+  it('derives the active symbol from the trusted case catalog', () => {
+    const cases = [{ id: 'case-1', symbol: 'BTCUSDT' as const }]
+    const initialized = ensureCaseTrainingProgress(
+      createChallengeProgress([{ id: 'training', mode: 'case-training' }], now),
+      'training',
+      cases,
+      () => 0,
+      now,
+    )
+
+    const advanced = advanceCaseTraining(initialized, 'training', { caseId: 'case-1', correct: false }, cases, now)
+
+    expect(advanced.unitStates.training.training).toMatchObject({
+      wrongCount: 1,
+      completedBySymbol: { ETHUSDT: 0, BTCUSDT: 1 },
+      outcomes: { 'case-1': { correct: false, symbol: 'BTCUSDT' } },
+    })
+    expect(() => advanceCaseTraining(initialized, 'training', { caseId: 'case-1', correct: true }, [], now)).toThrow()
+  })
+
   it('completes 100 shuffled cases without repeating an active ID', () => {
     const cases = trainingCases()
-    const byId = new Map(cases.map((item) => [item.id, item]))
     let progress = ensureCaseTrainingProgress(
       createChallengeProgress([{ id: 'training', mode: 'case-training' }], now),
       'training',
@@ -357,13 +454,11 @@ describe('case training progress', () => {
     for (let index = 0; index < 100; index += 1) {
       const training = progress.unitStates.training.training!
       const caseId = training.caseOrder[training.nextIndex]
-      const marketCase = byId.get(caseId)!
       completedIds.push(caseId)
       progress = advanceCaseTraining(progress, 'training', {
         caseId,
-        symbol: marketCase.symbol,
         correct: index % 2 === 0,
-      }, now)
+      }, cases, now)
     }
 
     expect(new Set(completedIds)).toHaveLength(100)
@@ -374,6 +469,7 @@ describe('case training progress', () => {
       wrongCount: 50,
       completedBySymbol: { ETHUSDT: 50, BTCUSDT: 50 },
     })
+    expect(Object.keys(progress.unitStates.training.training!.outcomes)).toHaveLength(100)
     expect(progress.mode).toBe('reinforcement')
   })
 })

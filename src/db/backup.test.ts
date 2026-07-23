@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createChallengeProgress } from '../domain/challenge'
 import { createBackup, validateBackup } from './backup'
 
 describe('challenge progress backup', () => {
@@ -33,6 +34,14 @@ describe('challenge progress backup', () => {
     expect(validateBackup(backup)).toEqual(backup)
   })
 
+  it('round-trips a case-training unit before its order is initialized', () => {
+    const progress = createChallengeProgress([{ id: 'training', mode: 'case-training' }])
+    progress.unitStates.training = { step: 'case-training', training: undefined }
+    const backup = createBackup({ challengeProgress: [progress], challengeAttempts: [], wrongItems: [], settings: {} })
+
+    expect(validateBackup(backup)).toEqual(backup)
+  })
+
   it('accepts and preserves case-training progress', () => {
     const progress = {
       id: 'main',
@@ -47,6 +56,7 @@ describe('challenge progress backup', () => {
             correctCount: 0,
             wrongCount: 1,
             completedBySymbol: { ETHUSDT: 0, BTCUSDT: 1 },
+            outcomes: { 'case-1': { correct: false, symbol: 'BTCUSDT' } },
           },
         },
       },
@@ -65,6 +75,10 @@ describe('challenge progress backup', () => {
     { caseOrder: ['case-1'], nextIndex: 1, correctCount: 0, wrongCount: 0 },
     { caseOrder: ['case-1'], nextIndex: 1, completedBySymbol: { ETHUSDT: 0, BTCUSDT: 0 } },
     { caseOrder: ['case-1'], nextIndex: 1, completedBySymbol: { ETHUSDT: 0, BTCUSDT: 1, SOLUSDT: 0 } },
+    { outcomes: {} },
+    { outcomes: { 'case-1': { correct: true, symbol: 'ETHUSDT' }, extra: { correct: false, symbol: 'BTCUSDT' } } },
+    { outcomes: { 'case-1': { correct: false, symbol: 'ETHUSDT' } } },
+    { outcomes: { 'case-1': { correct: true, symbol: 'BTCUSDT' } } },
   ])('rejects malformed case-training progress: %o', (trainingOverride) => {
     const training = Object.assign({
       caseOrder: ['case-1'],
@@ -72,13 +86,14 @@ describe('challenge progress backup', () => {
       correctCount: 1,
       wrongCount: 0,
       completedBySymbol: { ETHUSDT: 1, BTCUSDT: 0 },
+      outcomes: { 'case-1': { correct: true, symbol: 'ETHUSDT' } },
     }, trainingOverride)
     const backup = createBackup({
       challengeProgress: [{
         id: 'main',
         unitOrder: ['training'],
         unlockedUnitIndex: 0,
-        unitStates: { training: { step: 'case-training', training } },
+        unitStates: { training: { step: 'completed', training } },
         mode: 'course',
         updatedAt: '2026-07-17T00:00:00.000Z',
       }],
