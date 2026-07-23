@@ -218,6 +218,7 @@ export function validateChallengeContent(courseValue: unknown, marketCasesValue:
         throw new Error(`${marketCase.id} 真实案例必须包含 1-8 个标注`)
       }
       const learnerText = [
+        marketCase.title,
         ...marketCase.evidence,
         ...Object.values(marketCase.directionAnalysis),
         marketCase.actualOutcome,

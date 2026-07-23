@@ -279,4 +279,14 @@ describe('challenge content schemas', () => {
       expect(() => validateChallengeContent(course, marketCases)).toThrow('学习者文本不能包含内部字段名或 Unix 时间戳')
     },
   )
+
+  it.each(['recentReturn', '1700000000'])(
+    'rejects internal data in a learner-facing training case title: %s',
+    (forbiddenText) => {
+      const { course, marketCases, trainingCases } = validContent()
+      trainingCases[0].title = `真实案例 ${forbiddenText}`
+
+      expect(() => validateChallengeContent(course, marketCases)).toThrow('学习者文本不能包含内部字段名或 Unix 时间戳')
+    },
+  )
 })

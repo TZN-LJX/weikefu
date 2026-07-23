@@ -65,7 +65,40 @@ const course = {
   ],
 }
 
-function replayCase(unitId: string, id: string, absoluteIndex: number, symbol: 'ETHUSDT' | 'BTCUSDT' = 'ETHUSDT') {
+function standardReplayCase(unitIndex: number, caseIndex: number) {
+  const absoluteIndex = unitIndex * 3 + caseIndex
+  const start = 1_700_000_000 + absoluteIndex * 1_000_000
+  return {
+    id: `unit-${unitIndex + 1}-case-${caseIndex + 1}`,
+    unitId: `unit-${unitIndex + 1}`,
+    title: `ETH 回放 ${String(absoluteIndex + 1).padStart(2, '0')}`,
+    symbol: 'ETHUSDT',
+    market: 'Binance USD-M Futures',
+    timeframe: '1h',
+    cutoffTime: start + 48 * 3_600,
+    horizonEndTime: start + 72 * 3_600,
+    visibleCandles: Array.from({ length: 48 }, (_, index) => candle(start + index * 3_600, 3_000 + index)),
+    futureCandles: Array.from({ length: 24 }, (_, index) => candle(start + (48 + index) * 3_600, 3_050 + index * 4)),
+    candles4h: Array.from({ length: 24 }, (_, index) => candle(start - (24 - index) * 14_400, 2_980 + index * 3)),
+    correctDirection: 'up',
+    cutoffJudgment: 'range',
+    annotations: [
+      { time: start + 40 * 3_600, description: 'A柱需求扩大' },
+      { time: start + 44 * 3_600, description: 'B柱回调供应收缩' },
+    ],
+    evidence: ['回测时成交量收缩，但突破尚未得到确认', '上涨波与下跌波都没有形成可持续的单边优势'],
+    directionAnalysis: {
+      up: '上涨需要有效突破、需求跟随和回测确认，截止点前证据仍不足。',
+      down: '下跌需要供应持续扩大和向下价格进展，截止点前没有出现。',
+      range: '截止点判断为等待／方向不明，供需尚未形成可持续的单边优势。',
+    },
+    actualOutcome: '未来 24 小时收盘上涨约 3%。',
+    metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 },
+    source,
+  }
+}
+
+function trainingReplayCase(unitId: string, id: string, absoluteIndex: number, symbol: 'ETHUSDT' | 'BTCUSDT') {
   const start = 1_700_000_000 + absoluteIndex * 1_000_000
   const correctDirection = ['up', 'down', 'range'][absoluteIndex % 3] as 'up' | 'down' | 'range'
   const metrics = correctDirection === 'up'
@@ -108,17 +141,13 @@ function replayCase(unitId: string, id: string, absoluteIndex: number, symbol: '
   }
 }
 
-const standardCases = standardUnits.flatMap((unit, unitIndex) => (
-  Array.from({ length: 3 }, (_, caseIndex) => replayCase(
-    unit.id,
-    `${unit.id}-case-${caseIndex + 1}`,
-    unitIndex * 3 + caseIndex,
-  ))
+const standardCases = standardUnits.flatMap((_, unitIndex) => (
+  Array.from({ length: 3 }, (_, caseIndex) => standardReplayCase(unitIndex, caseIndex))
 ))
 
 const trainingCases = Array.from({ length: 100 }, (_, caseIndex) => {
   const symbol = caseIndex % 2 === 0 ? 'ETHUSDT' : 'BTCUSDT'
-  return replayCase(
+  return trainingReplayCase(
     trainingUnit.id,
     `${trainingUnit.id}-${symbol.toLowerCase()}-${String(caseIndex + 1).padStart(3, '0')}`,
     standardCases.length + caseIndex,
