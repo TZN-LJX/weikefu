@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createBackup, validateBackup } from '../db/backup'
 import {
   addWrongItem,
   advanceCaseTraining,
@@ -253,6 +254,69 @@ describe('case training progress', () => {
       wrongCount: 0,
       completedBySymbol: { ETHUSDT: 1, BTCUSDT: 1 },
     })
+  })
+
+  it('reopens completed training when repaired content introduces an unseen case', () => {
+    const progress: ChallengeProgress = {
+      id: 'main',
+      unitOrder: ['unit-1', 'training'],
+      unlockedUnitIndex: 0,
+      unitStates: {
+        'unit-1': { step: 'completed' },
+        training: {
+          step: 'completed',
+          training: {
+            caseOrder: ['a', 'b'],
+            nextIndex: 2,
+            correctCount: 2,
+            wrongCount: 0,
+            completedBySymbol: { ETHUSDT: 1, BTCUSDT: 1 },
+          },
+        },
+      },
+      mode: 'reinforcement',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+    }
+
+    const repaired = ensureCaseTrainingProgress(progress, 'training', [
+      { id: 'a', symbol: 'ETHUSDT' },
+      { id: 'c', symbol: 'BTCUSDT' },
+    ], () => 0, now)
+
+    expect(repaired.unitStates.training).toEqual({
+      step: 'case-training',
+      training: {
+        caseOrder: ['a', 'c'],
+        nextIndex: 1,
+        correctCount: 1,
+        wrongCount: 0,
+        completedBySymbol: { ETHUSDT: 1, BTCUSDT: 0 },
+      },
+    })
+    expect(repaired.unlockedUnitIndex).toBe(1)
+    expect(repaired.mode).toBe('course')
+
+    const backup = createBackup({ challengeProgress: [repaired], challengeAttempts: [], wrongItems: [], settings: {} })
+    expect(() => validateBackup(backup)).not.toThrow()
+
+    const completed = advanceCaseTraining(repaired, 'training', { caseId: 'c', symbol: 'BTCUSDT', correct: false }, now)
+    expect(completed.unitStates.training).toMatchObject({
+      step: 'completed',
+      training: {
+        nextIndex: 2,
+        correctCount: 1,
+        wrongCount: 1,
+        completedBySymbol: { ETHUSDT: 1, BTCUSDT: 1 },
+      },
+    })
+    expect(completed.mode).toBe('reinforcement')
+
+    const preserved = ensureCaseTrainingProgress(completed, 'training', [
+      { id: 'a', symbol: 'ETHUSDT' },
+      { id: 'c', symbol: 'BTCUSDT' },
+    ], () => 0, now)
+    expect(preserved.unitStates.training.step).toBe('completed')
+    expect(preserved.mode).toBe('reinforcement')
   })
 
   it('advances wrong answers and rejects an inactive case or unsupported symbol', () => {

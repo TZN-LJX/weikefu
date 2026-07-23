@@ -305,16 +305,22 @@ export function ensureCaseTrainingProgress(
   const wrongCount = nextIndex - correctCount
   const completedBySymbol = { ETHUSDT: 0, BTCUSDT: 0 }
   for (const caseId of completedPrefix) completedBySymbol[caseById.get(caseId)!.symbol] += 1
+  const unitIndex = progress.unitOrder.indexOf(unitId)
+  if (unitIndex < 0) throw new Error('知识单元不存在')
+  const reopened = current.step === 'completed' && nextIndex < caseOrder.length
 
   return {
     ...progress,
+    unlockedUnitIndex: reopened ? Math.max(progress.unlockedUnitIndex, unitIndex) : progress.unlockedUnitIndex,
     unitStates: {
       ...progress.unitStates,
       [unitId]: {
         ...current,
+        step: reopened ? 'case-training' : current.step,
         training: { caseOrder, nextIndex, correctCount, wrongCount, completedBySymbol },
       },
     },
+    mode: reopened ? 'course' : progress.mode,
     updatedAt: now.toISOString(),
   }
 }
