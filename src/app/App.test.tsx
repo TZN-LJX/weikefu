@@ -91,6 +91,49 @@ function overlappingProgress(): ChallengeProgress {
   return progress
 }
 
+function legacyProgress(completed: boolean): ChallengeProgress {
+  const { standardUnits } = createChallengeContentFixture()
+  const progress = createChallengeProgress(standardUnits.map((unit) => unit.id), new Date('2026-07-22T00:00:00.000Z'))
+  if (completed) {
+    for (const unit of standardUnits) progress.unitStates[unit.id] = { step: 'completed' }
+    progress.unlockedUnitIndex = standardUnits.length - 1
+    progress.mode = 'reinforcement'
+    return progress
+  }
+
+  progress.unlockedUnitIndex = 9
+  for (const unit of standardUnits.slice(0, 9)) progress.unitStates[unit.id] = { step: 'completed' }
+  progress.unitStates[standardUnits[9].id] = { step: 'book-quiz' }
+  return progress
+}
+
+function activeTrainingProgress(nextIndex = 37): ChallengeProgress {
+  const { course, trainingCases, trainingUnit } = createChallengeContentFixture()
+  const units = course.stages.flatMap((stage) => stage.units)
+  const completedCases = trainingCases.slice(0, nextIndex)
+  const outcomes: CaseTrainingProgress['outcomes'] = Object.fromEntries(completedCases.map((marketCase) => [
+    marketCase.id,
+    { correct: true, symbol: marketCase.symbol },
+  ]))
+  const progress = createChallengeProgress(units)
+  progress.unlockedUnitIndex = units.length - 1
+  progress.unitStates[trainingUnit.id] = {
+    step: 'case-training',
+    training: {
+      caseOrder: trainingCases.map((marketCase) => marketCase.id),
+      nextIndex,
+      correctCount: nextIndex,
+      wrongCount: 0,
+      completedBySymbol: {
+        ETHUSDT: completedCases.filter((marketCase) => marketCase.symbol === 'ETHUSDT').length,
+        BTCUSDT: completedCases.filter((marketCase) => marketCase.symbol === 'BTCUSDT').length,
+      },
+      outcomes,
+    },
+  }
+  return progress
+}
+
 describe('AppContent', () => {
   it('gates the app behind a valid private learning pack', async () => {
     render(<MemoryRouter><AppContent repositories={fakeRepositories(false) as never} /></MemoryRouter>)
@@ -105,13 +148,56 @@ describe('AppContent', () => {
     expect(screen.queryByText('今日任务')).not.toBeInTheDocument()
   })
 
+  it('migrates completed legacy progress into the unlocked training unit', async () => {
+    const { standardUnits, trainingUnit } = createChallengeContentFixture()
+    const repositories = fakeRepositories(true, legacyProgress(true))
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    expect(await screen.findByRole('button', { name: '开始 真实案例集训' })).toBeEnabled()
+    await waitFor(() => expect(repositories.saveChallengeProgress).toHaveBeenCalledTimes(1))
+    const migrated = repositories.saveChallengeProgress.mock.calls[0][0]
+    expect(migrated.unitOrder).toEqual([...standardUnits.map((unit) => unit.id), trainingUnit.id])
+    expect(standardUnits.every((unit) => migrated.unitStates[unit.id].step === 'completed')).toBe(true)
+    expect(migrated.unitStates[trainingUnit.id]).toEqual({ step: 'case-training' })
+    expect(migrated.unlockedUnitIndex).toBe(14)
+    expect(migrated.mode).toBe('course')
+  })
+
+  it('migrates incomplete legacy progress without changing its current state', async () => {
+    const { standardUnits, trainingUnit } = createChallengeContentFixture()
+    const savedProgress = legacyProgress(false)
+    const repositories = fakeRepositories(true, savedProgress)
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: trainingUnit.title })).toBeVisible()
+    await waitFor(() => expect(repositories.saveChallengeProgress).toHaveBeenCalledTimes(1))
+    const migrated = repositories.saveChallengeProgress.mock.calls[0][0]
+    expect(migrated.unitStates[standardUnits[0].id]).toEqual({ step: 'completed' })
+    expect(migrated.unitStates[standardUnits[9].id]).toEqual({ step: 'book-quiz' })
+    expect(migrated.unitStates[trainingUnit.id]).toEqual({ step: 'locked' })
+    expect(migrated.unlockedUnitIndex).toBe(savedProgress.unlockedUnitIndex)
+    expect(migrated.mode).toBe(savedProgress.mode)
+  })
+
+  it('preserves valid training progress without persisting it again', async () => {
+    const { trainingUnit } = createChallengeContentFixture()
+    const savedProgress = activeTrainingProgress()
+    const repositories = fakeRepositories(true, savedProgress)
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    expect(await screen.findByText('已完成 37/100')).toBeVisible()
+    expect(screen.getByRole('button', { name: '继续 真实案例集训' })).toBeEnabled()
+    expect(repositories.saveChallengeProgress).not.toHaveBeenCalled()
+    expect(savedProgress.unitStates[trainingUnit.id].training?.nextIndex).toBe(37)
+  })
+
   it('reopens completed case training without discarding its saved history', async () => {
     const user = userEvent.setup()
     const progress = completedTrainingProgress()
     const repositories = fakeRepositories(true, progress)
     render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
 
-    await user.click(await screen.findByRole('button', { name: '重练 真实案例集训' }))
+    await user.click(await screen.findByRole('button', { name: '查看完成 真实案例集训' }))
 
     expect(await screen.findByRole('heading', { name: '真实案例集训完成' })).toBeVisible()
     expect(repositories.saveChallengeProgress).not.toHaveBeenCalled()
@@ -126,11 +212,11 @@ describe('AppContent', () => {
     repositories.saveChallengeProgress.mockRejectedValue(new Error('真实案例顺序保存失败'))
     render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
 
-    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+    await user.click(await screen.findByRole('button', { name: '开始 真实案例集训' }))
     expect(await screen.findByText('真实案例顺序保存失败')).toBeVisible()
 
     await user.click(screen.getByTitle('返回闯关地图'))
-    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+    await user.click(await screen.findByRole('button', { name: '开始 真实案例集训' }))
 
     expect(await screen.findByText('真实案例顺序保存失败')).toBeVisible()
     expect(screen.queryByRole('heading', { name: /回放/ })).not.toBeInTheDocument()
@@ -198,7 +284,7 @@ describe('AppContent', () => {
     expect(screen.queryByRole('heading', { name: '本单元完成' })).not.toBeInTheDocument()
 
     await user.click(screen.getByTitle('返回闯关地图'))
-    expect(await screen.findByRole('button', { name: '重练 真实案例集训' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '查看完成 真实案例集训' })).toBeVisible()
   })
 
   it('publishes the snapshot that a queued training initialization persisted', async () => {
@@ -218,10 +304,10 @@ describe('AppContent', () => {
     try {
       render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
 
-      await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+      await user.click(await screen.findByRole('button', { name: '开始 真实案例集训' }))
       expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
       await user.click(screen.getByTitle('返回闯关地图'))
-      await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+      await user.click(await screen.findByRole('button', { name: '开始 真实案例集训' }))
       expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
 
       releaseFirstWrite()
@@ -252,7 +338,7 @@ describe('AppContent', () => {
     })
     const { rerender } = render(<MemoryRouter><AppContent repositories={olderRepositories as never} /></MemoryRouter>)
 
-    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+    await user.click(await screen.findByRole('button', { name: '开始 真实案例集训' }))
     expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
 
     rerender(<MemoryRouter><AppContent repositories={newerRepositories as never} /></MemoryRouter>)

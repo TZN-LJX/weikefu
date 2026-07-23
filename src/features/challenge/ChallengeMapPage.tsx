@@ -27,15 +27,23 @@ function stepNumber(step: ChallengeStep) {
   return -1
 }
 
+function unitCommand(unit: ContentUnit, state: ChallengeProgress['unitStates'][string]) {
+  if (unit.mode === 'case-training') {
+    if (state.step === 'completed') return '查看完成'
+    return (state.training?.nextIndex ?? 0) === 0 ? '开始' : '继续'
+  }
+  return state.step === 'completed' ? '重练' : state.step === 'review' ? '开始' : '继续'
+}
+
 export function ChallengeMapPage({ units, progress, wrongCount, onOpenUnit, onStartReinforcement }: ChallengeMapPageProps) {
   return <div className="challenge-map page-stack">
     <header className="challenge-map-header">
-      <div><p className="eyebrow">14个知识单元 · 顺序解锁</p><h1>闯关地图</h1></div>
+      <div><p className="eyebrow">{units.length}个知识单元 · 顺序解锁</p><h1>闯关地图</h1></div>
       <div className="wrong-count" aria-label={`${wrongCount} 道活跃错题`}><strong>{wrongCount}</strong><span>道活跃错题</span></div>
     </header>
 
     {progress.mode === 'reinforcement' && <section className="reinforcement-band">
-      <div><p className="eyebrow">全部单元已完成</p><h2>无限巩固</h2><p>继续混合复习错题、原书题和ETH历史回放。</p></div>
+      <div><p className="eyebrow">全部单元已完成</p><h2>无限巩固</h2><p>继续混合复习错题、原书题和 ETH/BTC 历史回放。</p></div>
       <button type="button" className="primary-command compact-command" onClick={onStartReinforcement}>开始无限巩固</button>
     </section>}
 
@@ -44,19 +52,23 @@ export function ChallengeMapPage({ units, progress, wrongCount, onOpenUnit, onSt
         const state = progress.unitStates[unit.id] ?? { step: 'locked' as const }
         const available = index <= progress.unlockedUnitIndex || state.step === 'completed'
         const currentStep = stepNumber(state.step)
-        const command = state.step === 'completed' ? '重练' : state.step === 'review' ? '开始' : '继续'
+        const command = unitCommand(unit, state)
         return <article className={`unit-row ${available ? '' : 'locked'}`} key={unit.id}>
           <div className="unit-index">{String(index + 1).padStart(2, '0')}</div>
           <div className="unit-copy">
             <span>{stepLabels[state.step]}</span>
             <h2>{unit.title}</h2>
             <p>{unit.summary}</p>
-            <div className="unit-steps" aria-label={`${unit.title}三步进度`}>
-              {['错题', '原书', '回放'].map((label, stepIndex) => <span key={label} className={currentStep > stepIndex ? 'done' : currentStep === stepIndex ? 'current' : ''}>{currentStep > stepIndex && <Check size={12} />}{label}</span>)}
-            </div>
+            {unit.mode === 'case-training' && available
+              ? <div className="unit-steps" aria-label={`${unit.title}集训进度`}>
+                <span className={state.step === 'completed' ? 'done' : 'current'}>{state.step === 'completed' && <Check size={12} />}已完成 {state.training?.nextIndex ?? 0}/{unit.trainingCaseCount ?? 100}</span>
+              </div>
+              : unit.mode !== 'case-training' && <div className="unit-steps" aria-label={`${unit.title}三步进度`}>
+                {['错题', '原书', '回放'].map((label, stepIndex) => <span key={label} className={currentStep > stepIndex ? 'done' : currentStep === stepIndex ? 'current' : ''}>{currentStep > stepIndex && <Check size={12} />}{label}</span>)}
+              </div>}
           </div>
           {available ? <button type="button" className="unit-command" aria-label={`${command} ${unit.title}`} onClick={() => onOpenUnit(unit.id)}>
-            {state.step === 'completed' ? <RotateCcw size={20} /> : <ChevronRight size={22} />}
+            {state.step === 'completed' && unit.mode !== 'case-training' ? <RotateCcw size={20} /> : <ChevronRight size={22} />}
           </button> : <LockKeyhole className="unit-lock" />}
         </article>
       })}

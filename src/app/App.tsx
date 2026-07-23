@@ -5,7 +5,7 @@ import { AppShell } from '../components/AppShell'
 import { createBackup, validateBackup } from '../db/backup'
 import { database, type ChallengeAttemptRecord, type PackRecord } from '../db/database'
 import { createRepositories, type Repositories } from '../db/repositories'
-import { createChallengeProgress, type ChallengeProgress, type WrongItem } from '../domain/challenge'
+import { createChallengeProgress, migrateChallengeProgress, type ChallengeProgress, type WrongItem } from '../domain/challenge'
 import { ChallengeMapPage } from '../features/challenge/ChallengeMapPage'
 import { ChallengeSessionPage } from '../features/challenge/ChallengeSessionPage'
 import { OnboardingPage } from '../features/onboarding/OnboardingPage'
@@ -50,10 +50,6 @@ function ContentError({ message, onReset }: { message: string; onReset: () => vo
   return <main className="loading-page"><FileArchive /><h1>学习包内容无法读取</h1><p>{message}</p><button className="primary-command compact-command" type="button" onClick={onReset}>返回导入页</button></main>
 }
 
-function sameUnitOrder(progress: ChallengeProgress, unitIds: string[]) {
-  return progress.unitOrder.length === unitIds.length && progress.unitOrder.every((unitId, index) => unitId === unitIds[index])
-}
-
 export function AppContent({ repositories = defaultRepositories }: AppContentProps) {
   const [state, setState] = useState<AppState>({ wrongItems: [] })
   const [loading, setLoading] = useState(true)
@@ -81,8 +77,8 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
         repositories.getWrongItems(),
       ])
       const { course, marketCases } = validateChallengeContent(rawCourse, rawMarketCases)
-      const unitIds = course.stages.flatMap((stage) => stage.units).map((unit) => unit.id)
-      const progress = savedProgress && sameUnitOrder(savedProgress, unitIds) ? savedProgress : createChallengeProgress(unitIds)
+      const units = course.stages.flatMap((stage) => stage.units)
+      const progress = migrateChallengeProgress(savedProgress, units, new Date())
       if (progress !== savedProgress) await repositories.saveChallengeProgress(progress)
       setState({ pack, course, marketCases, progress, wrongItems })
     } catch (reason) {
