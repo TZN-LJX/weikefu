@@ -1,22 +1,94 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { createChallengeProgress, type CaseTrainingProgress, type ChallengeProgress } from '../domain/challenge'
 import { createChallengeContentFixture } from '../test/fixtures/challengeContent'
 import { AppContent } from './App'
 
-function fakeRepositories(hasPack: boolean) {
+vi.mock('../features/replay/MarketChart', () => ({
+  MarketChart: ({ candles }: { candles: unknown[] }) => <div data-testid="chart">{candles.length} candles</div>,
+}))
+
+function fakeRepositories(hasPack: boolean, savedProgress?: ChallengeProgress) {
   const { course, marketCases } = createChallengeContentFixture()
   return {
     getActivePack: vi.fn(async () => hasPack ? { id: 'core', title: '私人课程', version: '2.0.0', active: true, importedAt: '' } : undefined),
     getJsonAsset: vi.fn(async (path: string) => path.includes('course') ? course : marketCases),
-    getChallengeProgress: vi.fn(async () => undefined),
+    getChallengeProgress: vi.fn(async () => savedProgress),
     getWrongItems: vi.fn(async () => []),
-    saveChallengeProgress: vi.fn(async () => undefined),
+    saveChallengeProgress: vi.fn(async (_progress: ChallengeProgress) => undefined),
     saveChallengeAttempt: vi.fn(async () => undefined),
     saveWrongItem: vi.fn(async () => undefined),
     savePack: vi.fn(), clearPartial: vi.fn(), deleteActivePack: vi.fn(), setSetting: vi.fn(), getSetting: vi.fn(), getAsset: vi.fn(),
     resetChallengeProgress: vi.fn(), getBackupSnapshot: vi.fn(async () => ({ challengeProgress: [], challengeAttempts: [], wrongItems: [], settings: {} })), restoreProgress: vi.fn(),
   }
+}
+
+function completedTrainingProgress(): ChallengeProgress {
+  const { course, trainingCases, trainingUnit } = createChallengeContentFixture()
+  const unitIds = course.stages.flatMap((stage) => stage.units).map((unit) => unit.id)
+  const outcomes: CaseTrainingProgress['outcomes'] = Object.fromEntries(trainingCases.map((marketCase) => [
+    marketCase.id,
+    { correct: true, symbol: marketCase.symbol },
+  ]))
+  const progress = createChallengeProgress(unitIds)
+  progress.unlockedUnitIndex = unitIds.length - 1
+  progress.unitStates[trainingUnit.id] = {
+    step: 'completed',
+    training: {
+      caseOrder: trainingCases.map((marketCase) => marketCase.id),
+      nextIndex: 100,
+      correctCount: 100,
+      wrongCount: 0,
+      completedBySymbol: { ETHUSDT: 50, BTCUSDT: 50 },
+      outcomes,
+    },
+  }
+  progress.mode = 'reinforcement'
+  return progress
+}
+
+function uninitializedTrainingProgress(): ChallengeProgress {
+  const { course, trainingUnit } = createChallengeContentFixture()
+  const unitIds = course.stages.flatMap((stage) => stage.units).map((unit) => unit.id)
+  const progress = createChallengeProgress(unitIds)
+  progress.unlockedUnitIndex = unitIds.length - 1
+  progress.unitStates[trainingUnit.id] = { step: 'case-training' }
+  return progress
+}
+
+function completedStandardProgress(): ChallengeProgress {
+  const { course, standardUnits } = createChallengeContentFixture()
+  const unitIds = course.stages.flatMap((stage) => stage.units).map((unit) => unit.id)
+  const progress = createChallengeProgress(unitIds)
+  progress.unitStates[standardUnits[0].id] = { step: 'completed' }
+  return progress
+}
+
+function overlappingProgress(): ChallengeProgress {
+  const { course, standardUnits, trainingCases, trainingUnit } = createChallengeContentFixture()
+  const unitIds = course.stages.flatMap((stage) => stage.units).map((unit) => unit.id)
+  const completedCases = trainingCases.slice(0, 99)
+  const outcomes: CaseTrainingProgress['outcomes'] = Object.fromEntries(completedCases.map((marketCase) => [
+    marketCase.id,
+    { correct: true, symbol: marketCase.symbol },
+  ]))
+  const progress = createChallengeProgress(unitIds)
+  progress.unlockedUnitIndex = unitIds.length - 1
+  progress.unitStates[standardUnits[0].id] = { step: 'completed' }
+  progress.unitStates[trainingUnit.id] = {
+    step: 'case-training',
+    training: {
+      caseOrder: trainingCases.map((marketCase) => marketCase.id),
+      nextIndex: 99,
+      correctCount: 99,
+      wrongCount: 0,
+      completedBySymbol: { ETHUSDT: 50, BTCUSDT: 49 },
+      outcomes,
+    },
+  }
+  return progress
 }
 
 describe('AppContent', () => {
@@ -31,5 +103,172 @@ describe('AppContent', () => {
     expect(await screen.findByRole('heading', { name: '闯关地图' })).toBeVisible()
     expect(screen.getByRole('heading', { name: '知识单元 1' })).toBeVisible()
     expect(screen.queryByText('今日任务')).not.toBeInTheDocument()
+  })
+
+  it('reopens completed case training without discarding its saved history', async () => {
+    const user = userEvent.setup()
+    const progress = completedTrainingProgress()
+    const repositories = fakeRepositories(true, progress)
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '重练 真实案例集训' }))
+
+    expect(await screen.findByRole('heading', { name: '真实案例集训完成' })).toBeVisible()
+    expect(repositories.saveChallengeProgress).not.toHaveBeenCalled()
+    expect(progress.unitStates['stage-8-real-case-training'].training?.outcomes).toHaveProperty(
+      progress.unitStates['stage-8-real-case-training'].training!.caseOrder[0],
+    )
+  })
+
+  it('does not publish a training order when persistence fails', async () => {
+    const user = userEvent.setup()
+    const repositories = fakeRepositories(true, uninitializedTrainingProgress())
+    repositories.saveChallengeProgress.mockRejectedValue(new Error('真实案例顺序保存失败'))
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+    expect(await screen.findByText('真实案例顺序保存失败')).toBeVisible()
+
+    await user.click(screen.getByTitle('返回闯关地图'))
+    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+
+    expect(await screen.findByText('真实案例顺序保存失败')).toBeVisible()
+    expect(screen.queryByRole('heading', { name: /回放/ })).not.toBeInTheDocument()
+    expect(repositories.saveChallengeProgress).toHaveBeenCalledTimes(2)
+  })
+
+  it('immediately reopens a completed standard unit while persistence is pending', async () => {
+    const user = userEvent.setup()
+    const repositories = fakeRepositories(true, completedStandardProgress())
+    repositories.saveChallengeProgress.mockImplementation(() => new Promise(() => undefined))
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '重练 知识单元 1' }))
+
+    expect(await screen.findByText('第 1 / 10 题')).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '本单元完成' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the standard optimistic reset when persistence rejects', async () => {
+    const user = userEvent.setup()
+    const repositories = fakeRepositories(true, completedStandardProgress())
+    repositories.saveChallengeProgress.mockRejectedValue(new Error('标准进度保存失败'))
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '重练 知识单元 1' }))
+
+    expect(await screen.findByText('第 1 / 10 题')).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '本单元完成' })).not.toBeInTheDocument()
+  })
+
+  it('serializes overlapping training and standard progress without stale overwrite', async () => {
+    const user = userEvent.setup()
+    const { standardUnits, trainingCases, trainingUnit } = createChallengeContentFixture()
+    const repositories = fakeRepositories(true, overlappingProgress())
+    let releaseTrainingWrite!: () => void
+    const trainingWrite = new Promise<void>((resolve) => { releaseTrainingWrite = resolve })
+    const startedWrites: ChallengeProgress[] = []
+    let persistedProgress: ChallengeProgress | undefined
+    repositories.saveChallengeProgress.mockImplementation(async (progress) => {
+      const writeIndex = startedWrites.push(progress) - 1
+      if (writeIndex === 0) await trainingWrite
+      persistedProgress = progress
+    })
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+    const finalCase = trainingCases[99]
+    const correctLabel = finalCase.correctDirection === 'up' ? '上涨' : finalCase.correctDirection === 'down' ? '下跌' : '震荡／方向不明'
+    await user.click(screen.getByRole('radio', { name: correctLabel }))
+    await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+    await user.click(screen.getByRole('button', { name: '完成真实案例集训' }))
+    expect(await screen.findByText('正在保存案例进度...')).toBeVisible()
+
+    await user.click(screen.getByTitle('返回闯关地图'))
+    await user.click(await screen.findByRole('button', { name: '重练 知识单元 1' }))
+    expect(await screen.findByText('第 1 / 10 题')).toBeVisible()
+    expect(startedWrites).toHaveLength(1)
+
+    releaseTrainingWrite()
+
+    await waitFor(() => expect(startedWrites.length).toBeGreaterThanOrEqual(3))
+    await waitFor(() => expect(persistedProgress?.unitStates[standardUnits[0].id].step).toBe('book-quiz'))
+    expect(persistedProgress?.unitStates[trainingUnit.id].step).toBe('completed')
+    expect(screen.getByText('第 1 / 10 题')).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '本单元完成' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByTitle('返回闯关地图'))
+    expect(await screen.findByRole('button', { name: '重练 真实案例集训' })).toBeVisible()
+  })
+
+  it('publishes the snapshot that a queued training initialization persisted', async () => {
+    const user = userEvent.setup()
+    const { trainingCases, trainingUnit } = createChallengeContentFixture()
+    const repositories = fakeRepositories(true, uninitializedTrainingProgress())
+    let releaseFirstWrite!: () => void
+    const firstWrite = new Promise<void>((resolve) => { releaseFirstWrite = resolve })
+    const persistedWrites: ChallengeProgress[] = []
+    repositories.saveChallengeProgress.mockImplementation(async (progress) => {
+      if (persistedWrites.length === 0) await firstWrite
+      persistedWrites.push(progress)
+    })
+    let randomCalls = 0
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => randomCalls++ < 198 ? 0 : 0.999)
+
+    try {
+      render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+      await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+      expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
+      await user.click(screen.getByTitle('返回闯关地图'))
+      await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+      expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
+
+      releaseFirstWrite()
+
+      await waitFor(() => expect(persistedWrites).toHaveLength(2))
+      const persistedTraining = persistedWrites[1].unitStates[trainingUnit.id].training!
+      const persistedActiveCase = trainingCases.find((marketCase) => marketCase.id === persistedTraining.caseOrder[0])!
+      expect(await screen.findByRole('heading', { name: persistedActiveCase.title })).toBeVisible()
+    } finally {
+      random.mockRestore()
+    }
+  })
+
+  it('does not overwrite newer queued training progress with an older training write', async () => {
+    const user = userEvent.setup()
+    const { trainingCases, trainingUnit } = createChallengeContentFixture()
+    const olderRepositories = fakeRepositories(true, uninitializedTrainingProgress())
+    const newerRepositories = fakeRepositories(true, overlappingProgress())
+    let releaseOlderWrite!: () => void
+    const olderWrite = new Promise<void>((resolve) => { releaseOlderWrite = resolve })
+    const persistedWrites: ChallengeProgress[] = []
+    olderRepositories.saveChallengeProgress.mockImplementation(async (progress) => {
+      await olderWrite
+      persistedWrites.push(progress)
+    })
+    newerRepositories.saveChallengeProgress.mockImplementation(async (progress) => {
+      persistedWrites.push(progress)
+    })
+    const { rerender } = render(<MemoryRouter><AppContent repositories={olderRepositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '继续 真实案例集训' }))
+    expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
+
+    rerender(<MemoryRouter><AppContent repositories={newerRepositories as never} /></MemoryRouter>)
+    const finalCase = trainingCases[99]
+    expect(await screen.findByRole('heading', { name: finalCase.title })).toBeVisible()
+    const correctLabel = finalCase.correctDirection === 'up' ? '上涨' : finalCase.correctDirection === 'down' ? '下跌' : '震荡／方向不明'
+    await user.click(screen.getByRole('radio', { name: correctLabel }))
+    await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+    await user.click(screen.getByRole('button', { name: '完成真实案例集训' }))
+    expect(await screen.findByText('正在保存案例进度...')).toBeVisible()
+
+    releaseOlderWrite()
+
+    await waitFor(() => expect(persistedWrites).toHaveLength(2))
+    expect(persistedWrites[1].unitStates[trainingUnit.id].step).toBe('completed')
+    expect(persistedWrites[1].unitStates[trainingUnit.id].training?.nextIndex).toBe(100)
+    expect(await screen.findByRole('heading', { name: '真实案例集训完成' })).toBeVisible()
   })
 })

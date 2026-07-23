@@ -49,6 +49,33 @@ const unit = {
 } as unknown as ContentUnit
 
 describe('ReplayStep', () => {
+  it('keeps the standard continue label when no override is supplied', async () => {
+    const user = userEvent.setup()
+    render(<ReplayStep marketCase={marketCase} unit={unit} onAnswered={vi.fn()} onOpenSource={vi.fn()} onContinue={vi.fn()} />)
+
+    await user.click(screen.getByRole('radio', { name: '上涨' }))
+    await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+
+    expect(screen.getByRole('button', { name: '完成本单元' })).toBeVisible()
+  })
+
+  it('shows a custom continue label after submission', async () => {
+    const user = userEvent.setup()
+    render(<ReplayStep
+      marketCase={marketCase}
+      unit={unit}
+      continueLabel="下一案例（2/100）"
+      onAnswered={vi.fn()}
+      onOpenSource={vi.fn()}
+      onContinue={vi.fn()}
+    />)
+
+    await user.click(screen.getByRole('radio', { name: '下跌' }))
+    await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+
+    expect(screen.getByRole('button', { name: '下一案例（2/100）' })).toBeVisible()
+  })
+
   it('keeps the 24 future candles hidden until one direction is submitted', async () => {
     const user = userEvent.setup()
     const onAnswered = vi.fn()

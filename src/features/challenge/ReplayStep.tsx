@@ -14,6 +14,7 @@ export type ReplayAnswer = {
 type ReplayStepProps = {
   marketCase: MarketCase
   unit?: ContentUnit
+  continueLabel?: string
   onAnswered: (answer: ReplayAnswer) => void
   onOpenSource: (source: SourceReference) => void
   onContinue: (correct: boolean) => void
@@ -30,7 +31,7 @@ function sourceLabel(source: SourceReference) {
   return `${source.chapter} · 第 ${pages} 页`
 }
 
-export function ReplayStep({ marketCase, unit, onAnswered, onOpenSource, onContinue }: ReplayStepProps) {
+export function ReplayStep({ marketCase, unit, continueLabel, onAnswered, onOpenSource, onContinue }: ReplayStepProps) {
   const [chartTimeframe, setChartTimeframe] = useState<'4h' | '1h'>('4h')
   const [selectedDirection, setSelectedDirection] = useState<Direction>()
   const [submitted, setSubmitted] = useState(false)
@@ -135,7 +136,9 @@ export function ReplayStep({ marketCase, unit, onAnswered, onOpenSource, onConti
         <span>{sourceLabel(marketCase.source)}</span>
         <button type="button" className="text-command" onClick={() => onOpenSource(marketCase.source)}>查看原书</button>
       </div>
-      <button className="primary-command" type="button" onClick={() => onContinue(correct)}>{correct ? '完成本单元' : '换一个案例继续'}</button>
+      <button className="primary-command" type="button" onClick={() => onContinue(correct)}>
+        {continueLabel ?? (correct ? '完成本单元' : '换一个案例继续')}
+      </button>
     </div>}
   </section>
 }

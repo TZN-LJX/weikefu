@@ -69,6 +69,10 @@
 .session-steps .current span { border-color: var(--gold); color: var(--gold); }
 .session-steps .done { color: var(--green); background: #eef6f3; }
 .session-steps .done span { border-color: var(--green-2); background: var(--green-2); color: #fff; }
+.training-progress { min-width: 0; min-height: 64px; display: grid; grid-template-columns: minmax(180px,1fr) minmax(360px,1.4fr); align-items: stretch; border: 1px solid var(--line); background: #fff; overflow: hidden; }
+.training-progress > strong { min-width: 0; display: flex; align-items: center; padding: 12px 16px; color: #805f19; background: #fff9eb; font-size: 14px; }
+.training-counter-grid { min-width: 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); }
+.training-counter-grid span { min-width: 0; min-height: 62px; display: grid; place-items: center; padding: 8px; border-left: 1px solid var(--line); color: var(--ink); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; overflow-wrap: anywhere; }
 .step-counter { color: var(--muted); font-size: 12px; font-weight: 800; }
 .loading-inline { padding: 28px; text-align: center; color: var(--muted); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 
@@ -169,6 +173,14 @@
 .loading-page p { max-width: 520px; margin: 0; line-height: 1.7; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 900px) {
+  .training-progress { grid-template-columns: 1fr; }
+  .training-progress > strong { min-height: 48px; justify-content: center; }
+  .training-counter-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .training-counter-grid span { min-height: 48px; border-top: 1px solid var(--line); }
+  .training-counter-grid span:nth-child(odd) { border-left: 0; }
+}
 
 @media (max-width: 720px) {
   .onboarding-page { grid-template-columns: 1fr; padding: 24px 16px 32px; gap: 26px; align-items: start; }

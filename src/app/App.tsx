@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { FileArchive, LoaderCircle } from 'lucide-react'
 import { HashRouter, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
@@ -23,6 +23,12 @@ type AppState = {
   marketCases?: MarketCases
   progress?: ChallengeProgress
   wrongItems: WrongItem[]
+}
+
+type PendingProgressWrite = {
+  revision: number
+  progress: ChallengeProgress
+  kind: 'standard' | 'training'
 }
 
 type AppContentProps = { repositories?: Repositories }
@@ -54,6 +60,9 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
   const [contentError, setContentError] = useState('')
+  const progressRevision = useRef(0)
+  const progressWriteQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const pendingProgressWrites = useRef(new Map<number, PendingProgressWrite>())
   const navigate = useNavigate()
 
   const load = useCallback(async () => {
@@ -129,9 +138,59 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
 
   const units = state.course.stages.flatMap((stage) => stage.units)
   const activeWrongCount = state.wrongItems.filter((item) => item.status === 'active').length
-  const saveProgress = (progress: ChallengeProgress) => {
+  const enqueueProgressWrite = (
+    progress: ChallengeProgress,
+    revision: number,
+    kind: PendingProgressWrite['kind'],
+    onPersisted?: (persistedProgress: ChallengeProgress) => void,
+  ) => {
+    const job: PendingProgressWrite = { revision, progress, kind }
+    pendingProgressWrites.current.set(revision, job)
+    const write = progressWriteQueue.current
+      .then(() => repositories.saveChallengeProgress(job.progress))
+      .then(() => {
+        onPersisted?.(job.progress)
+        return job.progress
+      })
+    progressWriteQueue.current = write.then(
+      () => { pendingProgressWrites.current.delete(revision) },
+      () => { pendingProgressWrites.current.delete(revision) },
+    )
+    return write
+  }
+  const saveProgressOptimistically = (progress: ChallengeProgress) => {
+    progressRevision.current += 1
+    const revision = progressRevision.current
     setState((current) => ({ ...current, progress }))
-    void repositories.saveChallengeProgress(progress)
+    void enqueueProgressWrite(progress, revision, 'standard').catch(() => undefined)
+  }
+  const saveTrainingProgress = (progress: ChallengeProgress) => {
+    progressRevision.current += 1
+    const revision = progressRevision.current
+    return enqueueProgressWrite(progress, revision, 'training', (persistedProgress) => {
+      if (progressRevision.current === revision) {
+        setState((current) => ({ ...current, progress: persistedProgress }))
+        return
+      }
+
+      const trainingUnitId = units.find((unit) => unit.mode === 'case-training')?.id
+      if (!trainingUnitId) return
+      const mergeTrainingState = (target: ChallengeProgress): ChallengeProgress => ({
+        ...target,
+        mode: persistedProgress.mode,
+        unitStates: {
+          ...target.unitStates,
+          [trainingUnitId]: persistedProgress.unitStates[trainingUnitId],
+        },
+      })
+      for (const pending of pendingProgressWrites.current.values()) {
+        if (pending.revision > revision && pending.kind === 'standard') pending.progress = mergeTrainingState(pending.progress)
+      }
+      if (pendingProgressWrites.current.get(progressRevision.current)?.kind === 'training') return
+      setState((current) => current.progress
+        ? { ...current, progress: mergeTrainingState(current.progress) }
+        : current)
+    })
   }
   const saveWrongItem = (item: WrongItem) => {
     setState((current) => ({ ...current, wrongItems: [...current.wrongItems.filter((candidate) => candidate.questionId !== item.questionId), item] }))
@@ -141,8 +200,9 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
   const openSource = (source: SourceReference) => navigate(`/pdf?page=${source.pageStart}`)
   const openUnit = (unitId: string) => {
     const step = state.progress?.unitStates[unitId]?.step
-    if (step === 'completed' && state.progress) {
-      saveProgress({ ...state.progress, unitStates: { ...state.progress.unitStates, [unitId]: { step: 'review' } }, updatedAt: new Date().toISOString() })
+    const activeUnit = units.find((unit) => unit.id === unitId)
+    if (step === 'completed' && state.progress && activeUnit?.mode === 'standard') {
+      saveProgressOptimistically({ ...state.progress, unitStates: { ...state.progress.unitStates, [unitId]: { step: 'review' } }, updatedAt: new Date().toISOString() })
     }
     navigate(`/challenge/${unitId}`)
   }
@@ -162,7 +222,8 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
       marketCases={state.marketCases}
       progress={state.progress}
       wrongItems={state.wrongItems}
-      onProgressChange={saveProgress}
+      onStandardProgressChange={saveProgressOptimistically}
+      onTrainingProgressChange={saveTrainingProgress}
       onWrongItemChange={saveWrongItem}
       onAttempt={saveAttempt}
       onOpenSource={openSource}
@@ -182,25 +243,47 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
   </Routes>
 }
 
+type ProgressChangeHandler = (progress: ChallengeProgress) => void | Promise<void | ChallengeProgress>
+
 type SessionCallbacks = {
-  onProgressChange: (progress: ChallengeProgress) => void
+  onProgressChange: ProgressChangeHandler
   onWrongItemChange: (item: WrongItem) => void
   onAttempt: (attempt: ChallengeAttemptRecord) => void
   onOpenSource: (source: SourceReference) => void
   onReturnToMap: () => void
 }
 
-function ChallengeRoute({ units, marketCases, progress, wrongItems, ...callbacks }: {
+function ChallengeRoute({
+  units,
+  marketCases,
+  progress,
+  wrongItems,
+  onStandardProgressChange,
+  onTrainingProgressChange,
+  ...callbacks
+}: {
   units: ContentUnit[]
   marketCases: MarketCases
   progress: ChallengeProgress
   wrongItems: WrongItem[]
-} & SessionCallbacks) {
+  onStandardProgressChange: ProgressChangeHandler
+  onTrainingProgressChange: ProgressChangeHandler
+} & Omit<SessionCallbacks, 'onProgressChange'>) {
   const { unitId } = useParams()
   const unit = units.find((candidate) => candidate.id === unitId)
   const index = unit ? units.indexOf(unit) : -1
   if (!unit || index > progress.unlockedUnitIndex) return <Navigate to="/" replace />
-  return <ChallengeSessionPage key={unit.id} unit={unit} allUnits={units} marketCases={marketCases.cases} progress={progress} wrongItems={wrongItems} {...callbacks} />
+  const onProgressChange = unit.mode === 'case-training' ? onTrainingProgressChange : onStandardProgressChange
+  return <ChallengeSessionPage
+    key={unit.id}
+    unit={unit}
+    allUnits={units}
+    marketCases={marketCases.cases}
+    progress={progress}
+    wrongItems={wrongItems}
+    onProgressChange={onProgressChange}
+    {...callbacks}
+  />
 }
 
 function ReinforcementRoute({ units, marketCases, wrongItems, onWrongItemChange, onAttempt, onOpenSource, onReturnToMap }: {
