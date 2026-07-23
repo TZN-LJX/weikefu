@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
 export const DirectionSchema = z.enum(['up', 'down', 'range'])
+export const MarketSymbolSchema = z.enum(['ETHUSDT', 'BTCUSDT'])
+export const ContentUnitModeSchema = z.enum(['standard', 'case-training'])
 
 export const SourceReferenceSchema = z.object({
   pdfPath: z.string().min(1),
@@ -34,14 +36,26 @@ export const ChoiceQuestionSchema = z.object({
 
 export const ContentUnitSchema = z.object({
   id: z.string().min(1),
+  mode: ContentUnitModeSchema.default('standard'),
+  trainingCaseCount: z.number().int().positive().optional(),
   title: z.string().min(1),
   summary: z.string().min(1),
   source: SourceReferenceSchema,
   excerpt: z.string().min(1),
   excerptPage: z.number().int().positive().optional(),
   keyPoints: z.array(z.string().min(1)).min(1),
-  bookQuestions: z.array(ChoiceQuestionSchema).min(20),
+  bookQuestions: z.array(ChoiceQuestionSchema),
 }).superRefine((unit, context) => {
+  if (unit.mode === 'case-training') {
+    if (unit.trainingCaseCount !== 100) {
+      context.addIssue({ code: 'custom', path: ['trainingCaseCount'], message: '真实案例集训必须声明 100 个案例' })
+    }
+    if (unit.bookQuestions.length !== 0) {
+      context.addIssue({ code: 'custom', path: ['bookQuestions'], message: '真实案例集训不能包含原书测验' })
+    }
+  } else if (unit.bookQuestions.length < 20) {
+    context.addIssue({ code: 'custom', path: ['bookQuestions'], message: '标准单元至少需要 20 道原书题' })
+  }
   const ids = unit.bookQuestions.map((question) => question.id)
   if (new Set(ids).size !== ids.length) {
     context.addIssue({ code: 'custom', path: ['bookQuestions'], message: '单元内题目 ID 必须唯一' })
@@ -60,8 +74,11 @@ export const CourseSchema = z.object({
   stages: z.array(CourseStageSchema).min(1),
 }).superRefine((course, context) => {
   const units = course.stages.flatMap((stage) => stage.units)
-  if (units.length !== 14) {
-    context.addIssue({ code: 'custom', path: ['stages'], message: '课程必须包含 14 个知识单元' })
+  if (units.length !== 15) {
+    context.addIssue({ code: 'custom', path: ['stages'], message: '课程必须包含 15 个知识单元' })
+  }
+  if (units.at(-1)?.mode !== 'case-training') {
+    context.addIssue({ code: 'custom', path: ['stages'], message: '课程最后一个单元必须是真实案例集训' })
   }
   const unitIds = units.map((unit) => unit.id)
   if (new Set(unitIds).size !== unitIds.length) {
@@ -94,7 +111,7 @@ export const MarketCaseSchema = z.object({
   id: z.string().min(1),
   unitId: z.string().min(1),
   title: z.string().min(1),
-  symbol: z.literal('ETHUSDT'),
+  symbol: MarketSymbolSchema,
   market: z.literal('Binance USD-M Futures'),
   timeframe: z.literal('1h'),
   cutoffTime: z.number().int().nonnegative(),
@@ -151,16 +168,23 @@ export const MarketCaseSchema = z.object({
 
 export const MarketCasesSchema = z.object({
   version: z.literal(2),
-  symbol: z.literal('ETHUSDT'),
+  symbol: MarketSymbolSchema,
+  symbols: z.array(MarketSymbolSchema).min(1).optional(),
   market: z.literal('Binance USD-M Futures'),
   generatedAt: z.string().datetime(),
   cases: z.array(MarketCaseSchema).min(42),
 }).superRefine((marketCases, context) => {
   const ids = marketCases.cases.map((marketCase) => marketCase.id)
   if (new Set(ids).size !== ids.length) {
-    context.addIssue({ code: 'custom', path: ['cases'], message: 'ETH 案例 ID 必须唯一' })
+    context.addIssue({ code: 'custom', path: ['cases'], message: '案例 ID 必须唯一' })
+  }
+  const symbolCutoffs = marketCases.cases.map((marketCase) => `${marketCase.symbol}:${marketCase.cutoffTime}`)
+  if (new Set(symbolCutoffs).size !== symbolCutoffs.length) {
+    context.addIssue({ code: 'custom', path: ['cases'], message: '案例标的和截止时间必须唯一' })
   }
 })
+
+const forbiddenLearnerText = /recentReturn|priorReturn|rangePosition|volumeRatio|return24h|minInterimReturn|maxInterimReturn|(?<!\d)\d{10}(?!\d)/i
 
 export function validateChallengeContent(courseValue: unknown, marketCasesValue: unknown) {
   const course = CourseSchema.parse(courseValue)
@@ -173,18 +197,47 @@ export function validateChallengeContent(courseValue: unknown, marketCasesValue:
     }
   }
   for (const unit of units) {
-    const count = marketCases.cases.filter((marketCase) => marketCase.unitId === unit.id).length
-    if (count < 3) throw new Error(`${unit.id} 至少需要 3 个 ETH 案例`)
+    const unitCases = marketCases.cases.filter((marketCase) => marketCase.unitId === unit.id)
+    if (unit.mode === 'standard') {
+      if (unitCases.length < 3) throw new Error(`${unit.id} 至少需要 3 个市场案例`)
+      continue
+    }
+    if (unitCases.length !== 100) {
+      throw new Error(`${unit.id} 必须包含 100 个真实案例`)
+    }
+    const ethCount = unitCases.filter((marketCase) => marketCase.symbol === 'ETHUSDT').length
+    const btcCount = unitCases.filter((marketCase) => marketCase.symbol === 'BTCUSDT').length
+    if (ethCount !== 50 || btcCount !== 50) {
+      throw new Error(`${unit.id} 必须包含 50 个 ETHUSDT 和 50 个 BTCUSDT`)
+    }
+    for (const marketCase of unitCases) {
+      if (!marketCase.cutoffJudgment) {
+        throw new Error(`${marketCase.id} 真实案例必须包含截止点判断`)
+      }
+      if (!marketCase.annotations || marketCase.annotations.length < 1 || marketCase.annotations.length > 8) {
+        throw new Error(`${marketCase.id} 真实案例必须包含 1-8 个标注`)
+      }
+      const learnerText = [
+        ...marketCase.evidence,
+        ...Object.values(marketCase.directionAnalysis),
+        marketCase.actualOutcome,
+      ]
+      if (learnerText.some((text) => forbiddenLearnerText.test(text))) {
+        throw new Error(`${marketCase.id} 学习者文本不能包含内部字段名或 Unix 时间戳`)
+      }
+    }
   }
   return { course, marketCases }
 }
 
 export type Direction = z.infer<typeof DirectionSchema>
+export type MarketSymbol = z.infer<typeof MarketSymbolSchema>
+export type ContentUnitMode = z.infer<typeof ContentUnitModeSchema>
 export type SourceReference = z.infer<typeof SourceReferenceSchema>
 export type ChoiceQuestion = z.infer<typeof ChoiceQuestionSchema>
 export type Course = z.infer<typeof CourseSchema>
 export type CourseStage = z.infer<typeof CourseStageSchema>
-export type ContentUnit = z.infer<typeof ContentUnitSchema>
+export type ContentUnit = z.input<typeof ContentUnitSchema>
 export type Candle = z.infer<typeof CandleSchema>
 export type MarketCase = z.infer<typeof MarketCaseSchema>
 export type MarketCases = z.infer<typeof MarketCasesSchema>

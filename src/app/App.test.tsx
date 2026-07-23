@@ -10,7 +10,7 @@ function candle(time: number, close = 3_000) {
 }
 
 function content() {
-  const units = Array.from({ length: 14 }, (_, unitIndex) => ({
+  const standardUnits = Array.from({ length: 14 }, (_, unitIndex) => ({
     id: `unit-${unitIndex + 1}`, title: `知识单元 ${unitIndex + 1}`,
     summary: '先判断背景，再比较价量努力与结果。', source, excerpt: '根据市场自身行为判断。', keyPoints: ['先背景', '后证据'],
     bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => ({
@@ -22,22 +22,41 @@ function content() {
       ], correctOptionId: 'a', explanation: '按证据判断。', source,
     })),
   }))
-  const cases = units.flatMap((unit, unitIndex) => Array.from({ length: 3 }, (_, caseIndex) => {
-    const start = 1_700_000_000 + (unitIndex * 3 + caseIndex) * 1_000_000
+  const trainingUnit = {
+    id: 'stage-8-real-case-training', mode: 'case-training', trainingCaseCount: 100,
+    title: '真实案例集训', summary: '连续完成100个不重复真实案例。', source,
+    excerpt: '根据市场自身行为判断。', keyPoints: ['先背景', '后证据'], bookQuestions: [],
+  }
+  function replayCase(unitId: string, id: string, absoluteIndex: number, symbol: 'ETHUSDT' | 'BTCUSDT' = 'ETHUSDT') {
+    const start = 1_700_000_000 + absoluteIndex * 1_000_000
     return {
-      id: `${unit.id}-case-${caseIndex + 1}`, unitId: unit.id, title: `ETH 回放 ${caseIndex + 1}`, symbol: 'ETHUSDT', market: 'Binance USD-M Futures', timeframe: '1h',
+      id, unitId, title: `${symbol} 回放 ${absoluteIndex + 1}`, symbol, market: 'Binance USD-M Futures', timeframe: '1h',
       cutoffTime: start + 48 * 3_600, horizonEndTime: start + 72 * 3_600,
       visibleCandles: Array.from({ length: 48 }, (_, index) => candle(start + index * 3_600)),
       futureCandles: Array.from({ length: 24 }, (_, index) => candle(start + (48 + index) * 3_600, 3_000 + index * 4)),
       candles4h: Array.from({ length: 24 }, (_, index) => candle(start - (24 - index) * 14_400)),
-      correctDirection: 'up', evidence: ['需求扩大', '供应收缩'],
+      correctDirection: 'up', cutoffJudgment: 'range',
+      annotations: [{ time: start + 40 * 3_600, description: '需求扩大' }], evidence: ['需求扩大', '供应收缩'],
       directionAnalysis: { up: '需求控制。', down: '供应不足。', range: '方向明确。' }, actualOutcome: '未来上涨。',
       metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 }, source,
     }
-  }))
+  }
+  const standardCases = standardUnits.flatMap((unit, unitIndex) => Array.from({ length: 3 }, (_, caseIndex) => (
+    replayCase(unit.id, `${unit.id}-case-${caseIndex + 1}`, unitIndex * 3 + caseIndex)
+  )))
+  const trainingCases = Array.from({ length: 100 }, (_, caseIndex) => {
+    const symbol = caseIndex < 50 ? 'ETHUSDT' : 'BTCUSDT'
+    return replayCase(trainingUnit.id, `${trainingUnit.id}-case-${caseIndex + 1}`, standardCases.length + caseIndex, symbol)
+  })
   return {
-    course: { version: 2, stages: [{ id: 'stage-1', title: '核心方法', goal: '顺序学习', units }] },
-    marketCases: { version: 2, symbol: 'ETHUSDT', market: 'Binance USD-M Futures', generatedAt: '2026-07-17T00:00:00.000Z', cases },
+    course: { version: 2, stages: [
+      { id: 'stage-1', title: '核心方法', goal: '顺序学习', units: standardUnits },
+      { id: 'stage-8-case-training', title: '真实案例集训', goal: '连续判断真实行情', units: [trainingUnit] },
+    ] },
+    marketCases: {
+      version: 2, symbol: 'ETHUSDT', symbols: ['ETHUSDT', 'BTCUSDT'], market: 'Binance USD-M Futures',
+      generatedAt: '2026-07-17T00:00:00.000Z', cases: [...standardCases, ...trainingCases],
+    },
   }
 }
 
