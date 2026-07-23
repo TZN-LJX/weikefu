@@ -80,6 +80,10 @@ export const CourseSchema = z.object({
   if (units.at(-1)?.mode !== 'case-training') {
     context.addIssue({ code: 'custom', path: ['stages'], message: '课程最后一个单元必须是真实案例集训' })
   }
+  const trainingUnits = units.filter((unit) => unit.mode === 'case-training')
+  if (trainingUnits.length !== 1) {
+    context.addIssue({ code: 'custom', path: ['stages'], message: '课程必须且只能包含一个真实案例集训单元' })
+  }
   const unitIds = units.map((unit) => unit.id)
   if (new Set(unitIds).size !== unitIds.length) {
     context.addIssue({ code: 'custom', path: ['stages'], message: '知识单元 ID 必须唯一' })
@@ -174,6 +178,17 @@ export const MarketCasesSchema = z.object({
   generatedAt: z.string().datetime(),
   cases: z.array(MarketCaseSchema).min(42),
 }).superRefine((marketCases, context) => {
+  if (marketCases.symbols) {
+    const declaredSymbols = new Set(marketCases.symbols)
+    if (declaredSymbols.size !== marketCases.symbols.length) {
+      context.addIssue({ code: 'custom', path: ['symbols'], message: '市场包 symbols 标的必须唯一' })
+    }
+    const actualSymbols = new Set(marketCases.cases.map((marketCase) => marketCase.symbol))
+    if (declaredSymbols.size !== actualSymbols.size
+      || [...declaredSymbols].some((symbol) => !actualSymbols.has(symbol))) {
+      context.addIssue({ code: 'custom', path: ['symbols'], message: '市场包 symbols 必须与案例标的一致' })
+    }
+  }
   const ids = marketCases.cases.map((marketCase) => marketCase.id)
   if (new Set(ids).size !== ids.length) {
     context.addIssue({ code: 'custom', path: ['cases'], message: '案例 ID 必须唯一' })
@@ -221,6 +236,7 @@ export function validateChallengeContent(courseValue: unknown, marketCasesValue:
         marketCase.title,
         ...marketCase.evidence,
         ...Object.values(marketCase.directionAnalysis),
+        ...marketCase.annotations.flatMap((annotation) => annotation.description ? [annotation.description] : []),
         marketCase.actualOutcome,
       ]
       if (learnerText.some((text) => forbiddenLearnerText.test(text))) {
@@ -238,7 +254,8 @@ export type SourceReference = z.infer<typeof SourceReferenceSchema>
 export type ChoiceQuestion = z.infer<typeof ChoiceQuestionSchema>
 export type Course = z.infer<typeof CourseSchema>
 export type CourseStage = z.infer<typeof CourseStageSchema>
-export type ContentUnit = z.input<typeof ContentUnitSchema>
+export type ContentUnitInput = z.input<typeof ContentUnitSchema>
+export type ContentUnit = z.output<typeof ContentUnitSchema>
 export type Candle = z.infer<typeof CandleSchema>
 export type MarketCase = z.infer<typeof MarketCaseSchema>
 export type MarketCases = z.infer<typeof MarketCasesSchema>

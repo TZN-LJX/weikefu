@@ -214,6 +214,7 @@ function ReinforcementRoute({ units, marketCases, wrongItems, onWrongItemChange,
 }) {
   const syntheticUnit = useMemo<ContentUnit>(() => ({
     id: 'reinforcement',
+    mode: 'standard',
     title: '无限巩固',
     summary: '混合复习全部原书知识和ETH历史案例。',
     source: units[0].source,

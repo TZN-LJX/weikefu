@@ -43,7 +43,7 @@ function replayCase(index: number, correctDirection: MarketCase['correctDirectio
 }
 
 const unit: ContentUnit = {
-  id: 'unit-1', title: '市场自身行为', summary: '通过背景和价量证据判断供需。',
+  id: 'unit-1', mode: 'standard', title: '市场自身行为', summary: '通过背景和价量证据判断供需。',
   source: { pdfPath: 'assets/original.pdf', chapter: '第一章', pageStart: 10, pageEnd: 12 },
   excerpt: '根据市场自身行为判断。', keyPoints: ['先背景', '后证据'],
   bookQuestions: Array.from({ length: 20 }, (_, index) => question(index + 1)),

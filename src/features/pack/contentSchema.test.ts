@@ -1,112 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { createChallengeContentFixture, createFixtureBookQuestion } from '../../test/fixtures/challengeContent'
 import { CourseSchema, MarketCasesSchema, validateChallengeContent } from './contentSchema'
 
-const source = {
-  pdfPath: 'assets/original.pdf',
-  chapter: '第一章 聪明钱的看盘顺序',
-  pageStart: 10,
-  pageEnd: 12,
-}
-
-const trainingSource = {
-  ...source,
-  pageStart: 17,
-  pageEnd: 25,
-}
-
-function question(index: number) {
-  return {
-    id: `question-${index}`,
-    prompt: `第 ${index} 题：当前证据说明什么？`,
-    options: [
-      { id: 'a', label: '需求占优', explanation: '上涨进展与成交量支持需求。' },
-      { id: 'b', label: '供应占优', explanation: '下跌进展与成交量支持供应。' },
-      { id: 'c', label: '证据不足', explanation: '供需证据冲突时不能强行判断。' },
-    ],
-    correctOptionId: 'c',
-    explanation: '必须先看背景，再比较努力与结果。',
-    source,
-  }
-}
-
-function candle(time: number, close = 3_000) {
-  return { time, open: close, high: close + 10, low: close - 10, close, volume: 100 }
-}
-
-function marketCase(unitId: string, index: number, symbol: 'ETHUSDT' | 'BTCUSDT' = 'ETHUSDT') {
-  const start = 1_700_000_000 + index * 1_000_000
-  return {
-    id: `${unitId}-${symbol}-case-${index}`,
-    unitId,
-    title: `${symbol} 回放 ${index}`,
-    symbol,
-    market: 'Binance USD-M Futures',
-    timeframe: '1h',
-    cutoffTime: start + 48 * 3_600,
-    horizonEndTime: start + 72 * 3_600,
-    visibleCandles: Array.from({ length: 48 }, (_, candleIndex) => candle(start + candleIndex * 3_600)),
-    futureCandles: Array.from({ length: 24 }, (_, candleIndex) => candle(start + (48 + candleIndex) * 3_600, 3_000 + candleIndex * 4)),
-    candles4h: Array.from({ length: 24 }, (_, candleIndex) => candle(start - (24 - candleIndex) * 14_400)),
-    correctDirection: 'up',
-    cutoffJudgment: 'range' as 'up' | 'down' | 'range' | undefined,
-    annotations: [{ time: start + 40 * 3_600, description: '放量突破' }],
-    evidence: ['回测时供应收缩', '突破后价格能够继续进展'],
-    directionAnalysis: {
-      up: '需求保持控制，未来一天偏向上涨。',
-      down: '截止点前没有持续扩大的供应。',
-      range: '价格已经出现方向性需求证据。',
-    },
-    actualOutcome: '未来一天收盘上涨约 3%。',
-    metrics: { return24h: 0.03, minInterimReturn: -0.005, maxInterimReturn: 0.04 },
-    source,
-  }
-}
-
-function validContent() {
-  const standardUnits = Array.from({ length: 14 }, (_, unitIndex) => ({
-    id: `unit-${unitIndex + 1}`,
-    title: `知识单元 ${unitIndex + 1}`,
-    summary: '根据市场自身行为判断供需关系，并严格按照背景、证据和结论的顺序分析。',
-    source,
-    excerpt: '市场自身的行为提供判断供需变化所需要的信息。',
-    keyPoints: ['先看背景', '比较努力与结果', '证据不足时等待'],
-    bookQuestions: Array.from({ length: 20 }, (_, questionIndex) => question(unitIndex * 20 + questionIndex)),
-  }))
-  const trainingUnit = {
-    id: 'stage-8-real-case-training',
-    mode: 'case-training' as 'standard' | 'case-training',
-    trainingCaseCount: 100,
-    title: '真实案例集训',
-    summary: '连续完成100个不重复真实案例。',
-    source: trainingSource,
-    excerpt: '只看技术指标无法得到真正的答案，我们这里介绍一下聪明钱的看图顺序：',
-    excerptPage: 19,
-    keyPoints: ['先看背景', '比较价量形态', '给出失效条件'],
-    bookQuestions: [] as ReturnType<typeof question>[],
-  }
-  const course = {
-    version: 2,
-    stages: [
-      { id: 'stage-1', title: '威科夫核心方法', goal: '掌握原书并迁移到真实行情', units: standardUnits },
-      { id: 'stage-8-case-training', title: '真实案例集训', goal: '连续判断不重复的真实行情', units: [trainingUnit] },
-    ],
-  }
-  const standardCases = standardUnits.flatMap((unit, unitIndex) => (
-    Array.from({ length: 3 }, (_, caseIndex) => marketCase(unit.id, unitIndex * 3 + caseIndex))
-  ))
-  const trainingCases = Array.from({ length: 100 }, (_, caseIndex) => (
-    marketCase(trainingUnit.id, standardCases.length + caseIndex, caseIndex < 50 ? 'ETHUSDT' : 'BTCUSDT')
-  ))
-  const marketCases = {
-    version: 2,
-    symbol: 'ETHUSDT',
-    symbols: ['ETHUSDT', 'BTCUSDT'],
-    market: 'Binance USD-M Futures',
-    generatedAt: '2026-07-17T00:00:00.000Z',
-    cases: [...standardCases, ...trainingCases],
-  }
-  return { course, marketCases, standardUnits, trainingUnit, trainingCases }
-}
+const validContent = createChallengeContentFixture
 
 describe('challenge content schemas', () => {
   it('accepts 15 units and 142 ETH/BTC cases with legacy units defaulted to standard mode', () => {
@@ -131,6 +27,20 @@ describe('challenge content schemas', () => {
     expect(MarketCasesSchema.parse(legacyMarketCases).symbol).toBe('ETHUSDT')
   })
 
+  it('requires declared market symbols to be unique', () => {
+    const { marketCases } = validContent()
+    marketCases.symbols = ['ETHUSDT', 'ETHUSDT', 'BTCUSDT']
+
+    expect(() => MarketCasesSchema.parse(marketCases)).toThrow('市场包 symbols 标的必须唯一')
+  })
+
+  it('requires declared market symbols to exactly match case symbols', () => {
+    const { marketCases } = validContent()
+    marketCases.symbols = ['ETHUSDT']
+
+    expect(() => MarketCasesSchema.parse(marketCases)).toThrow('市场包 symbols 必须与案例标的一致')
+  })
+
   it('preserves exact excerpt pages and structured replay annotations', () => {
     const { course, marketCases } = validContent()
     Object.assign(course.stages[0].units[0], { excerptPage: 19 })
@@ -138,7 +48,8 @@ describe('challenge content schemas', () => {
     const result = validateChallengeContent(course, marketCases)
     expect(result.course.stages[0].units[0].excerptPage).toBe(19)
     expect(result.marketCases.cases[0].annotations).toEqual([
-      { time: marketCases.cases[0].visibleCandles[40].time, description: '放量突破' },
+      { time: marketCases.cases[0].visibleCandles[40].time, description: 'A柱需求扩大' },
+      { time: marketCases.cases[0].visibleCandles[44].time, description: 'B柱回调供应收缩' },
     ])
     expect(result.marketCases.cases[0].cutoffJudgment).toBe('range')
   })
@@ -159,7 +70,7 @@ describe('challenge content schemas', () => {
 
   it('requires a training unit to contain zero book questions', () => {
     const { course, trainingUnit } = validContent()
-    trainingUnit.bookQuestions.push(question(999))
+    trainingUnit.bookQuestions.push(createFixtureBookQuestion(99, 999))
 
     expect(() => CourseSchema.parse(course)).toThrow('真实案例集训不能包含原书测验')
   })
@@ -174,9 +85,20 @@ describe('challenge content schemas', () => {
   it('requires the final unit to use case-training mode', () => {
     const { course, trainingUnit } = validContent()
     trainingUnit.mode = 'standard'
-    trainingUnit.bookQuestions = Array.from({ length: 20 }, (_, index) => question(1_000 + index))
+    trainingUnit.bookQuestions = Array.from({ length: 20 }, (_, index) => createFixtureBookQuestion(100, index))
 
     expect(() => CourseSchema.parse(course)).toThrow('课程最后一个单元必须是真实案例集训')
+  })
+
+  it('requires the preceding 14 units to be standard', () => {
+    const { course, trainingUnit } = validContent()
+    course.stages[0].units[13] = {
+      ...trainingUnit,
+      id: 'extra-case-training',
+      title: '额外案例集训',
+    }
+
+    expect(() => CourseSchema.parse(course)).toThrow('课程必须且只能包含一个真实案例集训单元')
   })
 
   it('rejects a book question whose correct option is missing', () => {
@@ -215,7 +137,7 @@ describe('challenge content schemas', () => {
 
   it('requires 50 ETHUSDT and 50 BTCUSDT training cases', () => {
     const { course, marketCases, trainingCases } = validContent()
-    trainingCases[49].symbol = 'BTCUSDT'
+    trainingCases[0].symbol = 'BTCUSDT'
 
     expect(() => validateChallengeContent(course, marketCases)).toThrow('必须包含 50 个 ETHUSDT 和 50 个 BTCUSDT')
   })
@@ -285,6 +207,16 @@ describe('challenge content schemas', () => {
     (forbiddenText) => {
       const { course, marketCases, trainingCases } = validContent()
       trainingCases[0].title = `真实案例 ${forbiddenText}`
+
+      expect(() => validateChallengeContent(course, marketCases)).toThrow('学习者文本不能包含内部字段名或 Unix 时间戳')
+    },
+  )
+
+  it.each(['volumeRatio', '1700000000'])(
+    'rejects internal data in a learner-facing training annotation: %s',
+    (forbiddenText) => {
+      const { course, marketCases, trainingCases } = validContent()
+      trainingCases[0].annotations[0].description = `标注 ${forbiddenText}`
 
       expect(() => validateChallengeContent(course, marketCases)).toThrow('学习者文本不能包含内部字段名或 Unix 时间戳')
     },
