@@ -184,14 +184,17 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
 
       const trainingUnitId = units.find((unit) => unit.mode === 'case-training')?.id
       if (!trainingUnitId) return
-      const mergeTrainingState = (target: ChallengeProgress): ChallengeProgress => ({
-        ...target,
-        mode: persistedProgress.mode,
-        unitStates: {
+      const mergeTrainingState = (target: ChallengeProgress): ChallengeProgress => {
+        const unitStates = {
           ...target.unitStates,
           [trainingUnitId]: persistedProgress.unitStates[trainingUnitId],
-        },
-      })
+        }
+        return {
+          ...target,
+          mode: target.unitOrder.every((unitId) => unitStates[unitId]?.step === 'completed') ? 'reinforcement' : 'course',
+          unitStates,
+        }
+      }
       for (const pending of pendingProgressWrites.current.values()) {
         if (pending.revision > revision && pending.kind === 'standard') pending.progress = mergeTrainingState(pending.progress)
       }

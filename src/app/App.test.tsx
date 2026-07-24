@@ -92,6 +92,15 @@ function overlappingProgress(): ChallengeProgress {
   return progress
 }
 
+function finalStandardPendingProgress(): ChallengeProgress {
+  const { standardUnits } = createChallengeContentFixture()
+  const progress = overlappingProgress()
+  for (const unit of standardUnits.slice(0, -1)) progress.unitStates[unit.id] = { step: 'completed' }
+  progress.unitStates[standardUnits.at(-1)!.id] = { step: 'market-replay' }
+  progress.unlockedUnitIndex = standardUnits.length - 1
+  return progress
+}
+
 function legacyProgress(completed: boolean): ChallengeProgress {
   const { standardUnits } = createChallengeContentFixture()
   const progress = createChallengeProgress(standardUnits.map((unit) => unit.id), new Date('2026-07-22T00:00:00.000Z'))
@@ -287,6 +296,48 @@ describe('AppContent', () => {
 
     await user.click(screen.getByTitle('返回闯关地图'))
     expect(await screen.findByRole('button', { name: '查看完成 真实案例集训' })).toBeVisible()
+  })
+
+  it('derives reinforcement mode after merging completed training into the final standard save', async () => {
+    const user = userEvent.setup()
+    const { standardUnits, standardCases, trainingCases, trainingUnit } = createChallengeContentFixture()
+    const repositories = fakeRepositories(true, finalStandardPendingProgress())
+    let releaseTrainingWrite!: () => void
+    const trainingWrite = new Promise<void>((resolve) => { releaseTrainingWrite = resolve })
+    const startedWrites: ChallengeProgress[] = []
+    let persistedProgress: ChallengeProgress | undefined
+    repositories.saveChallengeProgress.mockImplementation(async (progress) => {
+      const writeIndex = startedWrites.push(progress) - 1
+      if (writeIndex === 0) await trainingWrite
+      persistedProgress = progress
+    })
+    render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: /真实案例集训/ }))
+    const finalTrainingCase = trainingCases[99]
+    const finalTrainingLabel = finalTrainingCase.correctDirection === 'up' ? '上涨' : finalTrainingCase.correctDirection === 'down' ? '下跌' : '震荡／方向不明'
+    await user.click(screen.getByRole('radio', { name: finalTrainingLabel }))
+    await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+    await user.click(screen.getByRole('button', { name: '完成真实案例集训' }))
+    expect(await screen.findByText('正在保存案例进度...')).toBeVisible()
+
+    await user.click(screen.getByTitle('返回闯关地图'))
+    const finalStandardUnit = standardUnits.at(-1)!
+    await user.click(await screen.findByRole('button', { name: new RegExp(finalStandardUnit.title) }))
+    const visibleTitle = await screen.findByRole('heading', { level: 2 }).then((heading) => heading.textContent)
+    const visibleCase = standardCases.find((marketCase) => marketCase.title === visibleTitle && marketCase.unitId === finalStandardUnit.id)!
+    const standardLabel = visibleCase.correctDirection === 'up' ? '上涨' : visibleCase.correctDirection === 'down' ? '下跌' : '震荡／方向不明'
+    await user.click(screen.getByRole('radio', { name: standardLabel }))
+    await user.click(screen.getByRole('button', { name: '提交走势判断' }))
+    await user.click(screen.getByRole('button', { name: '完成本单元' }))
+    expect(startedWrites).toHaveLength(1)
+
+    releaseTrainingWrite()
+
+    await waitFor(() => expect(startedWrites).toHaveLength(2))
+    expect(persistedProgress?.unitStates[trainingUnit.id].step).toBe('completed')
+    expect(persistedProgress?.unitStates[finalStandardUnit.id].step).toBe('completed')
+    expect(persistedProgress?.mode).toBe('reinforcement')
   })
 
   it('publishes the snapshot that a queued training initialization persisted', async () => {
