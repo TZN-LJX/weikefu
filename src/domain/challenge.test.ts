@@ -231,6 +231,23 @@ describe('case training progress', () => {
     expect(completed.mode).toBe('course')
   })
 
+  it('preserves completed training when the remaining standard course finishes', () => {
+    const units: ChallengeUnitDescriptor[] = [
+      { id: 'unit-1', mode: 'standard' },
+      { id: 'training', mode: 'case-training' },
+    ]
+    const cases = [{ id: 'case-1', symbol: 'ETHUSDT' as const }]
+    let progress = ensureCaseTrainingProgress(createChallengeProgress(units, now), 'training', cases, () => 0, now)
+    progress = advanceCaseTraining(progress, 'training', { caseId: 'case-1', correct: true }, cases, now)
+    const completedTraining = progress.unitStates.training.training
+    progress = advanceUnitProgress(progress, 'unit-1', 'review-completed', now, units)
+    progress = advanceUnitProgress(progress, 'unit-1', 'book-quiz-passed', now, units)
+    progress = advanceUnitProgress(progress, 'unit-1', 'market-replay-passed', now, units)
+
+    expect(progress.unitStates.training).toEqual({ step: 'completed', training: completedTraining })
+    expect(progress.mode).toBe('reinforcement')
+  })
+
   it('shuffles once and keeps the same order across repeated ensure calls', () => {
     const random = vi.fn(() => 0)
     const progress = createChallengeProgress([{ id: 'training', mode: 'case-training' }], now)
