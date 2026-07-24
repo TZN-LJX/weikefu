@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  buildArchiveDescriptor,
   buildActualOutcome,
   buildAnalysisSummaries,
   buildReplayCandidate,
@@ -24,6 +25,13 @@ test('normalizes Binance futures klines to closed candle records', () => {
 test('parses the official Binance futures archive CSV format', () => {
   const csv = 'open_time,open,high,low,close,volume,close_time\n1720000000000,3000,3020,2980,3010,123.4,1720003599999\n'
   assert.deepEqual(parseArchiveCsv(csv), [[1720000000000, '3000', '3020', '2980', '3010', '123.4']])
+})
+
+test('builds symbol-specific Binance archive filenames and URLs', () => {
+  assert.deepEqual(buildArchiveDescriptor('BTCUSDT', '1h', '2024-01'), {
+    filename: 'BTCUSDT-1h-2024-01.zip',
+    url: 'https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2024-01.zip',
+  })
 })
 
 test('classifies only unambiguous 24-hour paths', () => {
@@ -109,6 +117,8 @@ test('builds fallback judgment and A/B/C explanations from visible candles only'
 
   assert.equal(first.cutoffJudgment, changedFuture.cutoffJudgment)
   assert.match(first.evidence.join(' '), /A柱.*B柱.*C柱/)
+  assert.match(first.annotations[0].description, /^A柱从 .+ (上涨至|下跌至) .+，成交量/)
+  assert.match(first.directionAnalysis.range, /失效条件/)
 })
 
 test('rejects learner-facing replay analysis with internal metrics or Unix timestamps', () => {

@@ -93,15 +93,22 @@ function monthsBetween(startDate, endDate) {
   return months
 }
 
-async function cachedArchive(interval, month, cacheDirectory) {
-  const filename = `ETHUSDT-${interval}-${month}.zip`
+export function buildArchiveDescriptor(symbol, interval, month) {
+  const filename = `${symbol}-${interval}-${month}.zip`
+  return {
+    filename,
+    url: `https://data.binance.vision/data/futures/um/monthly/klines/${symbol}/${interval}/${filename}`,
+  }
+}
+
+export async function cachedArchive(interval, month, cacheDirectory, symbol = 'ETHUSDT') {
+  const { filename, url } = buildArchiveDescriptor(symbol, interval, month)
   const cachePath = path.join(cacheDirectory, filename)
   let bytes
   try {
     await access(cachePath)
     bytes = await readFile(cachePath)
   } catch {
-    const url = `https://data.binance.vision/data/futures/um/monthly/klines/ETHUSDT/${interval}/${filename}`
     const response = await fetch(url)
     if (!response.ok) throw new Error(`${filename} 下载失败（HTTP ${response.status}）`)
     bytes = Buffer.from(await response.arrayBuffer())
@@ -113,11 +120,11 @@ async function cachedArchive(interval, month, cacheDirectory) {
   return normalizeKlines(parseArchiveCsv(await entry.async('text')))
 }
 
-async function loadArchiveSeries(interval, startDate, endDate, cacheDirectory) {
+export async function loadArchiveSeries(interval, startDate, endDate, cacheDirectory, symbol = 'ETHUSDT') {
   const rows = []
   const months = monthsBetween(startDate, endDate)
   for (const [index, month] of months.entries()) {
-    rows.push(...await cachedArchive(interval, month, cacheDirectory))
+    rows.push(...await cachedArchive(interval, month, cacheDirectory, symbol))
     process.stdout.write(`Binance ${interval} ${index + 1}/${months.length} 已读取\n`)
   }
   const startTime = startDate.getTime() / 1_000
@@ -125,7 +132,7 @@ async function loadArchiveSeries(interval, startDate, endDate, cacheDirectory) {
   return rows.filter((candle) => candle.time >= startTime && candle.time < endTime).sort((left, right) => left.time - right.time)
 }
 
-function scanCandidates(oneHourCandles, fourHourCandles) {
+export function scanCandidates(oneHourCandles, fourHourCandles) {
   const candidates = []
   for (let cutoffIndex = 120; cutoffIndex <= oneHourCandles.length - 24; cutoffIndex += 24) {
     try {
@@ -138,7 +145,7 @@ function scanCandidates(oneHourCandles, fourHourCandles) {
   return candidates
 }
 
-function takeEvenly(items, count) {
+export function takeEvenly(items, count) {
   if (items.length < count) throw new Error(`清晰行情不足：需要 ${count}，只有 ${items.length}`)
   return Array.from({ length: count }, (_, index) => items[Math.floor(index * items.length / count)])
 }
@@ -254,6 +261,21 @@ export function inferCutoffJudgment(facts) {
   return 'range'
 }
 
+function price(value) {
+  return Number(value).toFixed(2)
+}
+
+function volume(value) {
+  if (value >= 10_000) return `${(value / 10_000).toFixed(1)}万`
+  return Number(value).toFixed(2)
+}
+
+function annotationDescription(candle, index) {
+  const label = String.fromCharCode(65 + index)
+  const movement = candle[4] >= candle[1] ? '上涨至' : '下跌至'
+  return `${label}柱从 ${price(candle[1])} ${movement} ${price(candle[4])}，成交量 ${volume(candle[5])}`
+}
+
 export function fallbackAnalyses(unit, cases) {
   return cases.map((candidate) => {
     const facts = visibleFacts(candidate)
@@ -266,7 +288,7 @@ export function fallbackAnalyses(unit, cases) {
       .sort((left, right) => left[0] - right[0])
       .map((candle, index) => ({
         time: candle[0],
-        description: `${String.fromCharCode(65 + index)}柱是最近24小时的关键成交量K线`,
+        description: annotationDescription(candle, index),
       }))
     return {
       caseId: candidate.id,
@@ -280,9 +302,9 @@ export function fallbackAnalyses(unit, cases) {
         annotations.map((annotation) => annotation.description).join('；') + '。',
       ],
       directionAnalysis: {
-        up: cutoffJudgment === 'up' ? `截止点判断偏多。可见行情按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成需求占优的联合证据；若价格跌回原区间则判断失效。` : `上涨证据不足，截止点前没有形成足以推翻“${judgment}”判断的持续需求进展。`,
-        down: cutoffJudgment === 'down' ? `截止点判断偏空。可见行情按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成供应占优的联合证据；若价格收复原区间则判断失效。` : `下跌证据不足，截止点前没有形成足以推翻“${judgment}”判断的持续供应进展。`,
-        range: cutoffJudgment === 'range' ? '截止点判断为等待／方向不明。供需证据没有形成可持续的单边优势，等待确认比强行预测更符合原书顺序。' : `震荡判断不成立，因为截止点前已经出现支持${judgment}的方向性价格进展。`,
+        up: cutoffJudgment === 'up' ? `截止点判断偏多。可见行情按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成需求占优的联合证据。失效条件：价格跌回原区间且供应持续扩大。` : `上涨证据不足，截止点前没有形成足以推翻“${judgment}”判断的持续需求进展。`,
+        down: cutoffJudgment === 'down' ? `截止点判断偏空。可见行情按“${unit.keyPoints[1] ?? unit.keyPoints[0]}”形成供应占优的联合证据。失效条件：价格收复原区间且需求持续扩大。` : `下跌证据不足，截止点前没有形成足以推翻“${judgment}”判断的持续供应进展。`,
+        range: cutoffJudgment === 'range' ? '截止点判断为等待／方向不明。供需证据没有形成可持续的单边优势，等待确认比强行预测更符合原书顺序。失效条件：价格有效离开区间并出现同方向价量跟随。' : `震荡判断不成立，因为截止点前已经出现支持${judgment}的方向性价格进展。`,
       },
     }
   })
