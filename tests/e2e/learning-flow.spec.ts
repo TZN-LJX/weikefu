@@ -1,5 +1,35 @@
 import { expect, test } from '@playwright/test'
+import { createChallengeContentFixture } from '../../src/test/fixtures/challengeContent'
 import { completeBookQuiz, importFixturePack } from './helpers'
+
+test('opens training immediately and resumes the next saved case after a wrong answer', async ({ page }) => {
+  const fixture = createChallengeContentFixture()
+  const caseByTitle = new Map(fixture.trainingCases.map((marketCase) => [marketCase.title, marketCase]))
+  const directionLabels = { up: '上涨', down: '下跌', range: '震荡／方向不明' } as const
+  await importFixturePack(page)
+
+  await page.getByRole('button', { name: new RegExp(fixture.trainingUnit.title) }).click()
+  await expect(page.getByLabel('真实案例集训 1/100')).toBeVisible()
+  await expect(page.getByText('错题回顾')).not.toBeVisible()
+  await expect(page.getByText('原书测验')).not.toBeVisible()
+
+  const title = await page.locator('.replay-question-header h2').innerText()
+  const marketCase = caseByTitle.get(title)
+  if (!marketCase) throw new Error(`Unknown fixture training case: ${title}`)
+  const wrongDirection = (Object.keys(directionLabels) as (keyof typeof directionLabels)[])
+    .find((direction) => direction !== marketCase.correctDirection)!
+  await page.getByRole('radio', { name: directionLabels[wrongDirection], exact: true }).click()
+  await page.getByRole('button', { name: '提交走势判断' }).click()
+  await expect(page.getByText('回答错误')).toBeVisible()
+  await page.getByRole('button', { name: '下一案例（2/100）' }).click()
+
+  await expect(page.getByLabel('真实案例集训 2/100')).toBeVisible()
+  const nextTitle = await page.locator('.replay-question-header h2').innerText()
+  expect(nextTitle).not.toBe(title)
+  await page.reload()
+  await expect(page.getByLabel('真实案例集训 2/100')).toBeVisible()
+  await expect(page.locator('.replay-question-header h2')).toHaveText(nextTitle)
+})
 
 test('records an incorrect book answer and shows the fixed source-backed answer', async ({ page }) => {
   await importFixturePack(page)

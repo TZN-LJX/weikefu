@@ -55,3 +55,38 @@ test('captures required viewports and verifies the chart canvas is nonblank', as
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   await page.screenshot({ path: path.resolve('test-results', 'visual', 'replay-answer-1440x900.png'), fullPage: true })
 })
+
+test('captures the submitted case-training layout on mobile and desktop', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'one browser is sufficient for visual artifacts')
+  await page.setViewportSize({ width: 412, height: 915 })
+  await importFixturePack(page)
+  await page.getByRole('button', { name: /真实案例集训/ }).click()
+  await expect(page.getByLabel('真实案例集训 1/100')).toBeVisible()
+  await expect(page.getByText('正确 0')).toBeVisible()
+  await expect(page.getByText('错误 0')).toBeVisible()
+  await expect(page.locator('.market-chart-wrap')).toHaveAttribute('data-annotation-count', '0')
+
+  const canvases = page.locator('canvas')
+  await expect(canvases).not.toHaveCount(0)
+  const paintedPixels = await canvases.evaluateAll((items) => items.reduce((total, item) => {
+    const canvas = item as HTMLCanvasElement
+    const context = canvas.getContext('2d')
+    if (!context || canvas.width === 0 || canvas.height === 0) return total
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data
+    let painted = 0
+    for (let index = 3; index < data.length; index += 64) if (data[index] > 0) painted += 1
+    return total + painted
+  }, 0))
+  expect(paintedPixels).toBeGreaterThan(100)
+
+  await page.getByRole('radio', { name: '上涨' }).click()
+  await page.getByRole('button', { name: '提交走势判断' }).click()
+  await expect(page.locator('.market-chart-wrap')).not.toHaveAttribute('data-annotation-count', '0')
+  await expect(page.getByRole('heading', { name: '复盘SOP' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: path.resolve('test-results', 'visual', 'case-training-answer-412x915.png'), fullPage: true })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: path.resolve('test-results', 'visual', 'case-training-answer-1440x900.png'), fullPage: true })
+})

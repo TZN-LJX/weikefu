@@ -13,6 +13,35 @@ async function readPackContent() {
   }
 }
 
+test('contains 100 spaced ETH/BTC training cases without changing the original 42', async () => {
+  test.skip(!packPath, 'real private pack path is not configured')
+  const { course, marketCases } = await readPackContent()
+  const units = course.stages.flatMap((stage: { units: { id: string; mode?: string }[] }) => stage.units)
+  const trainingUnit = units.at(-1)
+  const trainingCases = marketCases.cases.filter((item: { unitId: string }) => item.unitId === trainingUnit.id)
+  const originalCases = marketCases.cases.filter((item: { unitId: string }) => item.unitId !== trainingUnit.id)
+
+  expect(units).toHaveLength(15)
+  expect(trainingUnit.mode).toBe('case-training')
+  expect(originalCases).toHaveLength(42)
+  expect(trainingCases).toHaveLength(100)
+  for (const symbol of ['ETHUSDT', 'BTCUSDT']) {
+    const symbolCases = trainingCases
+      .filter((item: { symbol: string }) => item.symbol === symbol)
+      .sort((left: { cutoffTime: number }, right: { cutoffTime: number }) => left.cutoffTime - right.cutoffTime)
+    expect(symbolCases).toHaveLength(50)
+    expect(symbolCases.filter((item: { correctDirection: string }) => item.correctDirection === 'up')).toHaveLength(17)
+    expect(symbolCases.filter((item: { correctDirection: string }) => item.correctDirection === 'down')).toHaveLength(17)
+    expect(symbolCases.filter((item: { correctDirection: string }) => item.correctDirection === 'range')).toHaveLength(16)
+    expect(symbolCases.slice(1).every((item: { cutoffTime: number }, index: number) => item.cutoffTime - symbolCases[index].cutoffTime >= 7 * 86_400)).toBe(true)
+  }
+  const originalEthCutoffs = originalCases.filter((item: { symbol: string }) => item.symbol === 'ETHUSDT').map((item: { cutoffTime: number }) => item.cutoffTime)
+  expect(trainingCases
+    .filter((item: { symbol: string }) => item.symbol === 'ETHUSDT')
+    .every((item: { cutoffTime: number }) => originalEthCutoffs.every((cutoff: number) => Math.abs(item.cutoffTime - cutoff) >= 7 * 86_400)))
+    .toBe(true)
+})
+
 test('imports the real pack and completes its first source-backed challenge', async ({ page }) => {
   test.skip(!packPath, 'real private pack path is not configured')
   const { course, marketCases } = await readPackContent()
@@ -24,6 +53,8 @@ test('imports the real pack and completes its first source-backed challenge', as
   await page.goto('./#/')
   await page.getByLabel('选择 .wkf 文件').setInputFiles(packPath!)
   await expect(page.getByRole('heading', { name: '闯关地图' })).toBeVisible({ timeout: 30_000 })
+  const trainingUnit = course.stages.flatMap((stage: { units: { title: string }[] }) => stage.units).at(-1)
+  await expect(page.getByRole('button', { name: new RegExp(trainingUnit.title) })).toBeEnabled()
   await page.getByRole('button', { name: `开始 ${firstUnit.title}` }).click()
 
   for (let index = 0; index < 10; index += 1) {

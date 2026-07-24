@@ -8,5 +8,8 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 412, height: 915 }
     const dimensions = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
     expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
     await expect(page.getByRole('heading', { name: '闯关地图' })).toBeVisible()
+    await page.getByRole('button', { name: /真实案例集训/ }).click()
+    await expect(page.getByLabel('真实案例集训 1/100')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   })
 }
