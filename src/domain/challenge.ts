@@ -152,7 +152,10 @@ export function createChallengeProgress(units: readonly (string | ChallengeUnitD
     id: 'main',
     unitOrder,
     unlockedUnitIndex: 0,
-    unitStates: Object.fromEntries(descriptors.map((unit, index) => [unit.id, { step: index === 0 ? unitEntryStep(unit) : 'locked' }])),
+    unitStates: Object.fromEntries(descriptors.map((unit, index) => [
+      unit.id,
+      { step: index === 0 || unit.mode === 'case-training' ? unitEntryStep(unit) : 'locked' },
+    ])),
     mode: 'course',
     updatedAt: now.toISOString(),
   }
@@ -193,7 +196,12 @@ export function advanceUnitProgress(
       const nextUnit = units?.find((unit) => unit.id === nextUnitId)
       if (!nextUnit) throw new Error('缺少下一知识单元描述')
       unlockedUnitIndex = completedIndex + 1
-      unitStates[nextUnitId] = { step: unitEntryStep(nextUnit) }
+      if (!unitStates[nextUnitId] || unitStates[nextUnitId].step === 'locked') {
+        unitStates[nextUnitId] = { step: unitEntryStep(nextUnit) }
+      }
+      if (progress.unitOrder.every((candidateId) => unitStates[candidateId]?.step === 'completed')) {
+        mode = 'reinforcement'
+      }
     }
   }
 
@@ -209,6 +217,20 @@ function hasValidCurrentShape(progress: ChallengeProgress, unitIds: string[]) {
     && progress.unlockedUnitIndex < unitIds.length
 }
 
+function makeTrainingUnitsAvailable(
+  progress: ChallengeProgress,
+  units: readonly ChallengeUnitDescriptor[],
+  now: Date,
+) {
+  const lockedTrainingIds = units
+    .filter((unit) => unit.mode === 'case-training' && progress.unitStates[unit.id]?.step === 'locked')
+    .map((unit) => unit.id)
+  if (!lockedTrainingIds.length) return progress
+  const unitStates = { ...progress.unitStates }
+  for (const unitId of lockedTrainingIds) unitStates[unitId] = { step: 'case-training' }
+  return { ...progress, unitStates, updatedAt: now.toISOString() }
+}
+
 export function migrateChallengeProgress(
   saved: ChallengeProgress | undefined,
   units: readonly ChallengeUnitDescriptor[],
@@ -217,7 +239,7 @@ export function migrateChallengeProgress(
   const descriptors = normalizeUnits(units)
   const unitIds = descriptors.map((unit) => unit.id)
   if (!saved) return createChallengeProgress(descriptors, now)
-  if (hasValidCurrentShape(saved, unitIds)) return saved
+  if (hasValidCurrentShape(saved, unitIds)) return makeTrainingUnitsAvailable(saved, descriptors, now)
 
   const addsOneUnit = saved.unitOrder.length + 1 === unitIds.length
     && saved.unitOrder.every((unitId, index) => unitId === unitIds[index])
@@ -232,7 +254,9 @@ export function migrateChallengeProgress(
     unlockedUnitIndex: legacyComplete ? unitIds.length - 1 : saved.unlockedUnitIndex,
     unitStates: {
       ...saved.unitStates,
-      [nextUnit.id]: { step: legacyComplete ? unitEntryStep(nextUnit) : 'locked' },
+      [nextUnit.id]: {
+        step: nextUnit.mode === 'case-training' ? 'case-training' : legacyComplete ? unitEntryStep(nextUnit) : 'locked',
+      },
     },
     mode: legacyComplete ? 'course' : saved.mode,
     updatedAt: now.toISOString(),
@@ -354,6 +378,9 @@ export function advanceCaseTraining(
 
   const nextIndex = training.nextIndex + 1
   const completed = nextIndex === training.caseOrder.length
+  const allOtherUnitsComplete = progress.unitOrder.every((candidateId) => (
+    candidateId === unitId || progress.unitStates[candidateId]?.step === 'completed'
+  ))
   return {
     ...progress,
     unitStates: {
@@ -376,7 +403,7 @@ export function advanceCaseTraining(
         },
       },
     },
-    mode: completed ? 'reinforcement' : progress.mode,
+    mode: completed ? (allOtherUnitsComplete ? 'reinforcement' : 'course') : progress.mode,
     updatedAt: now.toISOString(),
   }
 }

@@ -50,7 +50,9 @@ export function ChallengeMapPage({ units, progress, wrongCount, onOpenUnit, onSt
     <div className="unit-list">
       {units.map((unit, index) => {
         const state = progress.unitStates[unit.id] ?? { step: 'locked' as const }
-        const available = index <= progress.unlockedUnitIndex || state.step === 'completed'
+        const available = unit.mode === 'case-training'
+          ? state.step !== 'locked'
+          : index <= progress.unlockedUnitIndex || state.step === 'completed'
         const currentStep = stepNumber(state.step)
         const command = unitCommand(unit, state)
         return <article className={`unit-row ${available ? '' : 'locked'}`} key={unit.id}>

@@ -57,13 +57,23 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
   const [error, setError] = useState('')
   const [contentError, setContentError] = useState('')
   const progressRevision = useRef(0)
+  const progressGeneration = useRef(0)
   const progressWriteQueue = useRef<Promise<unknown>>(Promise.resolve())
   const pendingProgressWrites = useRef(new Map<number, PendingProgressWrite>())
   const navigate = useNavigate()
 
+  const flushProgressWrites = useCallback(async () => {
+    progressRevision.current += 1
+    progressGeneration.current += 1
+    const queue = progressWriteQueue.current
+    await queue.catch(() => undefined)
+    if (progressWriteQueue.current === queue) progressWriteQueue.current = Promise.resolve()
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setContentError('')
+    await flushProgressWrites()
     try {
       const pack = await repositories.getActivePack()
       if (!pack) {
@@ -86,7 +96,7 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
     } finally {
       setLoading(false)
     }
-  }, [repositories])
+  }, [flushProgressWrites, repositories])
 
   useEffect(() => { void load() }, [load])
 
@@ -117,6 +127,7 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
     try {
       const backup = validateBackup(JSON.parse(await file.text()))
       if (!window.confirm('导入后将覆盖当前闯关进度和错题记录，继续吗？')) return
+      await flushProgressWrites()
       await repositories.restoreProgress(backup)
       await load()
       window.alert('闯关进度已恢复')
@@ -163,7 +174,9 @@ export function AppContent({ repositories = defaultRepositories }: AppContentPro
   const saveTrainingProgress = (progress: ChallengeProgress) => {
     progressRevision.current += 1
     const revision = progressRevision.current
+    const generation = progressGeneration.current
     return enqueueProgressWrite(progress, revision, 'training', (persistedProgress) => {
+      if (progressGeneration.current !== generation) return
       if (progressRevision.current === revision) {
         setState((current) => ({ ...current, progress: persistedProgress }))
         return
@@ -268,7 +281,10 @@ function ChallengeRoute({
   const { unitId } = useParams()
   const unit = units.find((candidate) => candidate.id === unitId)
   const index = unit ? units.indexOf(unit) : -1
-  if (!unit || index > progress.unlockedUnitIndex) return <Navigate to="/" replace />
+  const unitState = unit ? progress.unitStates[unit.id] : undefined
+  const unavailable = !unitState || unitState.step === 'locked'
+    || (unit?.mode !== 'case-training' && index > progress.unlockedUnitIndex && unitState.step !== 'completed')
+  if (!unit || unavailable) return <Navigate to="/" replace />
   const onProgressChange = unit.mode === 'case-training' ? onTrainingProgressChange : onStandardProgressChange
   return <ChallengeSessionPage
     key={unit.id}

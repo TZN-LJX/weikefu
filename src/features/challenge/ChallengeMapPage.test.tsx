@@ -10,7 +10,7 @@ const fixture = createChallengeContentFixture()
 const units = fixture.course.stages.flatMap((stage) => stage.units) as ContentUnit[]
 
 describe('ChallengeMapPage', () => {
-  it('shows all 15 units and only opens the first unlocked unit', async () => {
+  it('shows all 15 units, keeps standard units sequential, and opens training immediately', async () => {
     const user = userEvent.setup()
     const onOpenUnit = vi.fn()
     render(<ChallengeMapPage units={units} progress={createChallengeProgress(units)} wrongCount={3} onOpenUnit={onOpenUnit} onStartReinforcement={vi.fn()} />)
@@ -22,6 +22,10 @@ describe('ChallengeMapPage', () => {
     expect(screen.queryByRole('button', { name: '开始 知识单元 2' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '开始 知识单元 1' }))
     expect(onOpenUnit).toHaveBeenCalledWith('unit-1')
+    const trainingButton = screen.getByRole('button', { name: new RegExp(fixture.trainingUnit.title) })
+    expect(trainingButton).toBeEnabled()
+    await user.click(trainingButton)
+    expect(onOpenUnit).toHaveBeenCalledWith(fixture.trainingUnit.id)
   })
 
   it('shows training progress and uses its start and continue commands', () => {

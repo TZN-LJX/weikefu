@@ -118,22 +118,17 @@ describe('challenge progression', () => {
     expect(progress.mode).toBe('reinforcement')
   })
 
-  it('initializes descriptor-based training units locked and unlocks them at the training step', () => {
+  it('makes case training immediately available without unlocking later standard units', () => {
     const units: ChallengeUnitDescriptor[] = [
       { id: 'unit-1', mode: 'standard' },
       { id: 'training', mode: 'case-training' },
     ]
-    let progress = createChallengeProgress(units, now)
+    const progress = createChallengeProgress(units, now)
 
     expect(progress.unitOrder).toEqual(['unit-1', 'training'])
-    expect(progress.unitStates.training.step).toBe('locked')
-
-    progress = advanceUnitProgress(progress, 'unit-1', 'review-completed', now, units)
-    progress = advanceUnitProgress(progress, 'unit-1', 'book-quiz-passed', now, units)
-    progress = advanceUnitProgress(progress, 'unit-1', 'market-replay-passed', now, units)
-
-    expect(progress.unlockedUnitIndex).toBe(1)
     expect(progress.unitStates.training.step).toBe('case-training')
+    expect(progress.unitStates['unit-1'].step).toBe('review')
+    expect(progress.unlockedUnitIndex).toBe(0)
     expect(progress.mode).toBe('course')
   })
 
@@ -161,7 +156,7 @@ function trainingCases(count = 100) {
 }
 
 describe('challenge progress migration', () => {
-  it('appends a locked training unit without disturbing incomplete legacy progress', () => {
+  it('appends an immediately available training unit without disturbing incomplete legacy progress', () => {
     const legacy = createChallengeProgress(challengeUnits().slice(0, 14), new Date('2026-07-16T00:00:00.000Z'))
     legacy.unlockedUnitIndex = 9
     legacy.unitStates['unit-1'] = { step: 'completed' }
@@ -173,7 +168,7 @@ describe('challenge progress migration', () => {
     expect(migrated.unlockedUnitIndex).toBe(9)
     expect(migrated.unitStates['unit-1']).toEqual({ step: 'completed' })
     expect(migrated.unitStates['unit-10']).toEqual({ step: 'book-quiz' })
-    expect(migrated.unitStates.training).toEqual({ step: 'locked' })
+    expect(migrated.unitStates.training).toEqual({ step: 'case-training' })
     expect(migrated.mode).toBe('course')
     expect(migrated.updatedAt).toBe(now.toISOString())
   })
@@ -208,9 +203,34 @@ describe('challenge progress migration', () => {
 
     expect(migrateChallengeProgress(progress, challengeUnits(), new Date('2026-07-18T00:00:00.000Z'))).toBe(progress)
   })
+
+  it('upgrades a previously locked training state without unlocking later standard units', () => {
+    const progress = createChallengeProgress(challengeUnits(), now)
+    progress.unitStates.training = { step: 'locked' }
+
+    const migrated = migrateChallengeProgress(progress, challengeUnits(), new Date('2026-07-18T00:00:00.000Z'))
+
+    expect(migrated.unitStates.training).toEqual({ step: 'case-training' })
+    expect(migrated.unlockedUnitIndex).toBe(0)
+  })
 })
 
 describe('case training progress', () => {
+  it('keeps the course mode until standard units are also complete', () => {
+    const units: ChallengeUnitDescriptor[] = [
+      { id: 'unit-1', mode: 'standard' },
+      { id: 'training', mode: 'case-training' },
+    ]
+    const cases = [{ id: 'case-1', symbol: 'ETHUSDT' as const }]
+    const initialized = ensureCaseTrainingProgress(createChallengeProgress(units, now), 'training', cases, () => 0, now)
+
+    const completed = advanceCaseTraining(initialized, 'training', { caseId: 'case-1', correct: true }, cases, now)
+
+    expect(completed.unitStates.training.step).toBe('completed')
+    expect(completed.unitStates['unit-1'].step).toBe('review')
+    expect(completed.mode).toBe('course')
+  })
+
   it('shuffles once and keeps the same order across repeated ensure calls', () => {
     const random = vi.fn(() => 0)
     const progress = createChallengeProgress([{ id: 'training', mode: 'case-training' }], now)

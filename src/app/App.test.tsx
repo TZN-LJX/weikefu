@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { createBackup } from '../db/backup'
 import { createChallengeProgress, type CaseTrainingProgress, type ChallengeProgress } from '../domain/challenge'
 import { createChallengeContentFixture } from '../test/fixtures/challengeContent'
 import { AppContent } from './App'
@@ -60,8 +61,8 @@ function uninitializedTrainingProgress(): ChallengeProgress {
 
 function completedStandardProgress(): ChallengeProgress {
   const { course, standardUnits } = createChallengeContentFixture()
-  const unitIds = course.stages.flatMap((stage) => stage.units).map((unit) => unit.id)
-  const progress = createChallengeProgress(unitIds)
+  const units = course.stages.flatMap((stage) => stage.units)
+  const progress = createChallengeProgress(units)
   progress.unitStates[standardUnits[0].id] = { step: 'completed' }
   return progress
 }
@@ -163,7 +164,7 @@ describe('AppContent', () => {
     expect(migrated.mode).toBe('course')
   })
 
-  it('migrates incomplete legacy progress without changing its current state', async () => {
+  it('migrates incomplete legacy progress while making training immediately available', async () => {
     const { standardUnits, trainingUnit } = createChallengeContentFixture()
     const savedProgress = legacyProgress(false)
     const repositories = fakeRepositories(true, savedProgress)
@@ -174,9 +175,10 @@ describe('AppContent', () => {
     const migrated = repositories.saveChallengeProgress.mock.calls[0][0]
     expect(migrated.unitStates[standardUnits[0].id]).toEqual({ step: 'completed' })
     expect(migrated.unitStates[standardUnits[9].id]).toEqual({ step: 'book-quiz' })
-    expect(migrated.unitStates[trainingUnit.id]).toEqual({ step: 'locked' })
+    expect(migrated.unitStates[trainingUnit.id]).toEqual({ step: 'case-training' })
     expect(migrated.unlockedUnitIndex).toBe(savedProgress.unlockedUnitIndex)
     expect(migrated.mode).toBe(savedProgress.mode)
+    expect(screen.getByRole('button', { name: new RegExp(trainingUnit.title) })).toBeEnabled()
   })
 
   it('preserves valid training progress without persisting it again', async () => {
@@ -342,19 +344,68 @@ describe('AppContent', () => {
     expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
 
     rerender(<MemoryRouter><AppContent repositories={newerRepositories as never} /></MemoryRouter>)
+    releaseOlderWrite()
     const finalCase = trainingCases[99]
     expect(await screen.findByRole('heading', { name: finalCase.title })).toBeVisible()
     const correctLabel = finalCase.correctDirection === 'up' ? '上涨' : finalCase.correctDirection === 'down' ? '下跌' : '震荡／方向不明'
     await user.click(screen.getByRole('radio', { name: correctLabel }))
     await user.click(screen.getByRole('button', { name: '提交走势判断' }))
     await user.click(screen.getByRole('button', { name: '完成真实案例集训' }))
-    expect(await screen.findByText('正在保存案例进度...')).toBeVisible()
-
-    releaseOlderWrite()
 
     await waitFor(() => expect(persistedWrites).toHaveLength(2))
     expect(persistedWrites[1].unitStates[trainingUnit.id].step).toBe('completed')
     expect(persistedWrites[1].unitStates[trainingUnit.id].training?.nextIndex).toBe(100)
     expect(await screen.findByRole('heading', { name: '真实案例集训完成' })).toBeVisible()
+  })
+
+  it('drains pending training writes before restoring and migrating a backup', async () => {
+    const user = userEvent.setup()
+    const { trainingUnit } = createChallengeContentFixture()
+    let storedProgress = uninitializedTrainingProgress()
+    const repositories = fakeRepositories(true, storedProgress)
+    repositories.getChallengeProgress.mockImplementation(async () => storedProgress)
+    let releaseTrainingWrite!: () => void
+    const trainingWrite = new Promise<void>((resolve) => { releaseTrainingWrite = resolve })
+    const writes: ChallengeProgress[] = []
+    repositories.saveChallengeProgress.mockImplementation(async (progress) => {
+      writes.push(progress)
+      if (writes.length === 1) await trainingWrite
+      storedProgress = progress
+    })
+    repositories.restoreProgress.mockImplementation(async (backup) => {
+      storedProgress = backup.challengeProgress[0] as ChallengeProgress
+    })
+    const restoredProgress = legacyProgress(false)
+    const backup = createBackup({ challengeProgress: [restoredProgress], challengeAttempts: [], wrongItems: [], settings: {} })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined)
+
+    try {
+      render(<MemoryRouter><AppContent repositories={repositories as never} /></MemoryRouter>)
+
+      await user.click(await screen.findByRole('button', { name: '开始 真实案例集训' }))
+      expect(await screen.findByText('正在保存真实案例顺序...')).toBeVisible()
+      expect(writes).toHaveLength(1)
+
+      await user.click(screen.getByTitle('设置'))
+      const backupFile = new File([JSON.stringify(backup)], 'restore.json', { type: 'application/json' })
+      await user.upload(screen.getByLabelText('导入进度'), backupFile)
+      expect(repositories.restoreProgress).not.toHaveBeenCalled()
+      expect(writes).toHaveLength(1)
+
+      releaseTrainingWrite()
+
+      await waitFor(() => expect(repositories.restoreProgress).toHaveBeenCalledTimes(1))
+      await user.click(screen.getByTitle('返回'))
+      expect(await screen.findByText('15个知识单元 · 顺序解锁')).toBeVisible()
+      await waitFor(() => expect(writes).toHaveLength(2))
+      expect(writes[1].unitStates[trainingUnit.id]).toEqual({ step: 'case-training' })
+      expect(storedProgress.unitStates[trainingUnit.id]).toEqual({ step: 'case-training' })
+      expect(screen.getByRole('button', { name: '继续 知识单元 10' })).toBeVisible()
+      expect(screen.getByRole('button', { name: new RegExp(trainingUnit.title) })).toBeEnabled()
+    } finally {
+      confirm.mockRestore()
+      alert.mockRestore()
+    }
   })
 })
